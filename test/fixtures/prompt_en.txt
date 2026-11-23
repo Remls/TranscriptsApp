@@ -1,0 +1,25 @@
+Transcribe this English audio recording verbatim.
+
+Output format:
+- Return an SRT subtitle file ONLY, with no commentary, code fences, or notes.
+- Each cue should be a natural utterance (typically 3-10 seconds).
+- If multiple speakers are present, prefix each cue's text with a label like "Speaker 1:".
+
+Timestamp format (STRICT — common failure mode):
+- Every timestamp MUST have all four components: HH:MM:SS,mmm
+  HH = hours (2 digits, zero-padded), MM = minutes (2 digits), SS = seconds (2 digits), mmm = milliseconds (3 digits).
+  The separator before milliseconds is a COMMA (,), not a colon.
+- Correct: "00:01:42,560 --> 00:01:48,210"
+- WRONG (do NOT emit any of these):
+    "01:42,560"        ← missing hours
+    "00:01:42:560"     ← colon before milliseconds; must be comma
+    "01:42:560"        ← missing hours AND colon-instead-of-comma
+    "1:42,560"         ← hours not zero-padded
+- For audio under 1 hour, the hours field is "00", not omitted.
+
+Cue ordering (STRICT — do not violate):
+- Each cue's end MUST be >= its own start. Never emit a cue where end < start.
+- Cues MUST NOT overlap. Each cue's start MUST be >= the previous cue's end.
+- Do NOT emit a long "umbrella" cue that spans multiple utterances and then
+  separate cues for those utterances inside it. Either segment finely OR
+  segment coarsely — never both at once. One cue per utterance, in order.

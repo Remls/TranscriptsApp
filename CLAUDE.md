@@ -1,0 +1,105 @@
+# CLAUDE.md
+
+Project guidance for Claude Code in this repo.
+
+## What this is
+
+A Flutter app for Android that transcribes recordings with Gemini, then translates and summarizes them with Gemini or Claude.
+
+## Run and test
+
+```bash
+dart format lib test
+```
+
+```bash
+flutter analyze
+```
+
+```bash
+flutter test
+```
+
+Analysis must be clean and every test must pass before a step is reported done.
+
+- Release build: `flutter build apk --release --split-per-abi`. Phones take `app-arm64-v8a-release.apk`.
+- Signing reads `android/key.properties`, which is gitignored and holds the keystore password. Never print or commit it.
+- Raise the build number in `pubspec.yaml` (`version: name+build`) for every build that goes on a phone.
+
+## Billing in tests
+
+Do not run a real transcription, translation or summary. Unit tests use `MockClient` and `FakeMediaTools` (`test/fake_media_tools.dart`). On the emulator, turn on airplane mode before starting a job:
+
+```bash
+adb shell cmd connectivity airplane-mode enable
+```
+
+Split and combine use only ffmpeg and are free. Listing models is free.
+
+## Flutter version notes
+
+Flutter 3.50, Dart 3.14.
+
+- Material comes from `package:material_ui/material_ui.dart`.
+- Dot shorthands are used throughout (`.center`, `.rtl`).
+- A `SnackBar` with an action needs `persist: false` to auto-dismiss. Every snackbar passes it.
+
+## Architecture
+
+State is plain `ChangeNotifier` objects.
+
+- `Session` (`session.dart`) owns the open recording, its cues, the single `AudioPlayer`, and the running jobs.
+- `Settings` wraps `SharedPreferences` and the Keystore-backed secrets.
+- `Library` (`library.dart`) is the on-disk layout. Sidecar paths go through `sidecarDir()` and `sidecarFile()`. Do not build them by hand.
+- `LanguageList` (`languages.dart`) is the user's language list, stored in `<library>/.languages.json`. Direction, font size and prompt notes come from it. Do not hardcode language checks elsewhere.
+- Jobs extend `Job` (`job.dart`): a status line, streamed output, cancel.
+- Pure logic stays out of widgets so it can be tested with temp directories and fakes.
+- `MainActivity.kt` extends `AudioServiceActivity` and hosts the share, save-as, job service and PiP channels.
+
+## Library layout
+
+```
+audios/
+  <folder>/
+    <name>.mp3
+    .<name>/
+      transcript.srt  transcript.txt  lang
+      translation.srt  summary.md
+      speakers.json  speaker-overrides.json
+      audio.mp3  notes.json  notes/<id>.jpg
+    .summary-flat.md  .summary-hier.md
+  .languages.json
+  .trash/
+```
+
+Folders are one level deep. `lang` absent means `dv`.
+
+## Guards to keep
+
+- The three SRT timestamp guards: the clamp in `parseSrt`, the write-path cleanup `cleanModelSrt`, and the repair pass `repairSrtFile` on restore. They protect different points. Keep all three.
+- Prompts in `prompts.dart` match fixtures in `test/fixtures/`. A prompt change updates its fixture.
+- Active-cue selection picks the shortest cue that contains the current time.
+
+## Traps
+
+- `dart format` reflows code. Read the current text before an exact-string edit.
+- Closing the open recording rebuilds the home screen. Flows that close it use the `State`'s context, not a menu's.
+- `AlertDialog` content with an infinite-width child renders blank. Wrap it in `SizedBox(width: double.maxFinite)`.
+- Closures passed to `Isolate.run` must be created in top-level functions.
+- `just_audio_background` supports one player, and every source needs a `MediaItem` tag.
+- Nothing may declare `android.permission.CAMERA`, or the system camera intent stops working. After adding a package, run `aapt2 dump permissions` on the APK.
+- Release builds shrink resources. A drawable that code looks up by name must be listed in `android/app/src/main/res/raw/keep.xml`, or the lookup fails only in release builds.
+- `assets/fonts/Faruma.ttf` is a Thaana-only subset, so Latin text does not render in it.
+- Installing a build over a newer one fails with `INSTALL_FAILED_VERSION_DOWNGRADE`, and `flutter run` then uninstalls the app, which deletes its library.
+
+## Emulator
+
+- Put files in private storage: push to `/data/local/tmp`, then `adb shell run-as io.remls.transcripts cp -r /data/local/tmp/<dir> app_flutter/audios/`.
+- Screenshots: `adb exec-out screencap -p`.
+- Test media is synthetic, made with ffmpeg (`sine` for tones, `testsrc2` for video).
+
+## House rules
+
+- No incident specifics in comments. A comment says what a thing is.
+- Other people's libraries must keep working across updates. A change to the sidecar layout or a stored file format needs to read the old form too.
+- Never use the user's own recordings or names as examples in code, tests or docs.

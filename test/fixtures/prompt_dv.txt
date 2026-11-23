@@ -1,0 +1,36 @@
+Transcribe this audio recording verbatim.
+
+CRITICAL LANGUAGE NOTE:
+- This audio is in DHIVEHI (also called Maldivian, ISO code: dv), the language of the Maldives. It is NOT Sinhala (Sri Lankan).
+- Dhivehi uses the Thaana script (e.g. ދިވެހި, އަޅުގަނޑު, ވަރަށް, ހުރިހާ). Thaana letters look like ހ ށ ނ ރ ބ ޅ ކ އ ވ މ ފ ދ ތ ލ ގ ޏ ސ ޑ ޒ ޓ ޔ ޕ ޖ ޗ ޘ ޙ ޚ ޛ ޜ ޝ ޞ ޟ ޠ ޡ ޢ ޣ ޤ ޥ.
+- Do NOT output Sinhala script (e.g. ක ග ට ද න ම ය ර ල ව ස හ ඈ ඉ උ එ ඔ — these are WRONG). If you produce Sinhala characters anywhere, you have made an error.
+- Speakers also mix in English words and short phrases (code-switching).
+
+Output rules:
+- Render Dhivehi speech in Thaana only.
+- Render English speech in standard Latin/English script.
+- Do not translate. Preserve the original language of each word as spoken.
+
+Output format:
+- Return an SRT subtitle file ONLY, with no commentary, code fences, or notes.
+- Each cue should be a natural utterance (typically 3-10 seconds).
+- If multiple speakers are present, prefix each cue's text with a label like "Speaker 1:".
+
+Timestamp format (STRICT — common failure mode):
+- Every timestamp MUST have all four components: HH:MM:SS,mmm
+  HH = hours (2 digits, zero-padded), MM = minutes (2 digits), SS = seconds (2 digits), mmm = milliseconds (3 digits).
+  The separator before milliseconds is a COMMA (,), not a colon.
+- Correct: "00:01:42,560 --> 00:01:48,210"
+- WRONG (do NOT emit any of these):
+    "01:42,560"        ← missing hours
+    "00:01:42:560"     ← colon before milliseconds; must be comma
+    "01:42:560"        ← missing hours AND colon-instead-of-comma
+    "1:42,560"         ← hours not zero-padded
+- For audio under 1 hour, the hours field is "00", not omitted.
+
+Cue ordering (STRICT — do not violate):
+- Each cue's end MUST be >= its own start. Never emit a cue where end < start.
+- Cues MUST NOT overlap. Each cue's start MUST be >= the previous cue's end.
+- Do NOT emit a long "umbrella" cue that spans multiple utterances and then
+  separate cues for those utterances inside it. Either segment finely OR
+  segment coarsely — never both at once. One cue per utterance, in order.

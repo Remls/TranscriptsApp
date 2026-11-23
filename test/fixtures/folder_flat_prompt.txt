@@ -1,0 +1,12 @@
+You are synthesizing a unified summary of a set of related recordings.
+Below are the English translations of each recording, each preceded by a heading like '## <filename>'.
+Lines are prefixed with speaker labels.
+
+Produce in English, markdown:
+- 1-2 sentence overview of the set.
+- 5-10 bullet points covering: main topics, decisions, action items, key speaker attributions.
+- Note threads that span multiple recordings or topics revisited.
+
+Under 400 words. No preamble.
+
+Translations follow.

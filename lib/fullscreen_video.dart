@@ -1,0 +1,441 @@
+import 'dart:async';
+
+import 'package:flutter/services.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:video_player/video_player.dart';
+
+import 'languages.dart';
+import 'pip.dart';
+import 'player_bar.dart';
+import 'session.dart';
+import 'settings.dart';
+import 'srt.dart';
+import 'theme.dart';
+import 'video_panel.dart';
+
+const _skip = Duration(seconds: 10);
+const _hideAfter = Duration(seconds: 3);
+const _fade = Duration(milliseconds: 200);
+
+/// The mode after [current] when cycling, skipping the translation when
+/// there is none.
+SubtitleMode nextSubtitleMode(
+  SubtitleMode current, {
+  required bool hasTranslation,
+}) {
+  final next = switch (current) {
+    .off => SubtitleMode.transcript,
+    .transcript => SubtitleMode.translation,
+    .translation => SubtitleMode.off,
+  };
+  return next == .translation && !hasTranslation ? .off : next;
+}
+
+/// The text lines of [cue], without speaker labels.
+List<String> subtitleLines(Cue cue) => [
+  for (final item in cue.items)
+    if (item.text.trim().isNotEmpty) item.text.trim(),
+];
+
+String _subtitleLabel(SubtitleMode mode) => switch (mode) {
+  .off => 'Off',
+  .transcript => 'Transcript',
+  .translation => 'Translation',
+};
+
+/// The video of [follower] filling the screen, with playback controls that
+/// fade out while it plays, and subtitles.
+class FullscreenVideo extends StatefulWidget {
+  const FullscreenVideo({
+    super.key,
+    required this.follower,
+    required this.session,
+    required this.pip,
+  });
+
+  final VideoFollower follower;
+  final Session session;
+  final PipController pip;
+
+  @override
+  State<FullscreenVideo> createState() => _FullscreenVideoState();
+}
+
+class _FullscreenVideoState extends State<FullscreenVideo> {
+  bool _controlsShown = true;
+  Timer? _hideTimer;
+  StreamSubscription<bool>? _playingSub;
+
+  /// The side of the last double-tap skip while its marker shows: -1 for
+  /// back, 1 for forward.
+  int? _skipSide;
+  Timer? _skipTimer;
+  double _doubleTapX = 0;
+
+  Session get _session => widget.session;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.follower.fullscreen = true;
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    if (widget.follower.controller.value.aspectRatio > 1) {
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+    }
+    _playingSub = _session.player.playingStream.listen((playing) {
+      if (playing) {
+        _scheduleHide();
+      } else {
+        _hideTimer?.cancel();
+        if (mounted) setState(() => _controlsShown = true);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _hideTimer?.cancel();
+    _skipTimer?.cancel();
+    _playingSub?.cancel();
+    widget.follower.fullscreen = false;
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    SystemChrome.setPreferredOrientations(const []);
+    super.dispose();
+  }
+
+  void _scheduleHide() {
+    _hideTimer?.cancel();
+    if (!_session.player.playing) return;
+    _hideTimer = Timer(_hideAfter, () {
+      if (mounted) setState(() => _controlsShown = false);
+    });
+  }
+
+  void _toggleControls() {
+    setState(() => _controlsShown = !_controlsShown);
+    if (_controlsShown) _scheduleHide();
+  }
+
+  void _doubleTapSkip(double width) {
+    final side = _doubleTapX < width / 2 ? -1 : 1;
+    _session.seekBy(_skip * side);
+    _skipTimer?.cancel();
+    setState(() => _skipSide = side);
+    _skipTimer = Timer(const Duration(milliseconds: 600), () {
+      if (mounted) setState(() => _skipSide = null);
+    });
+  }
+
+  void _cycleSubtitles() {
+    final settings = _session.settings;
+    settings.setSubtitleMode(
+      nextSubtitleMode(
+        settings.subtitleMode,
+        hasTranslation: _session.translatedCues.isNotEmpty,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = darkVariant(Theme.of(context).colorScheme);
+    return ListenableBuilder(
+      listenable: widget.pip,
+      builder: (context, _) => widget.pip.inPip
+          ? PipVideo(follower: widget.follower)
+          : Theme(
+              data: appTheme(scheme),
+              child: Scaffold(
+                backgroundColor: Colors.black,
+                body: LayoutBuilder(
+                  builder: (context, constraints) => Stack(
+                    children: [
+                      Positioned.fill(
+                        child: GestureDetector(
+                          behavior: .opaque,
+                          onTap: _toggleControls,
+                          onDoubleTapDown: (d) =>
+                              _doubleTapX = d.localPosition.dx,
+                          onDoubleTap: () =>
+                              _doubleTapSkip(constraints.maxWidth),
+                          child: Center(
+                            child: AspectRatio(
+                              aspectRatio:
+                                  widget.follower.controller.value.aspectRatio,
+                              child: VideoPlayer(widget.follower.controller),
+                            ),
+                          ),
+                        ),
+                      ),
+                      _subtitles(),
+                      if (_skipSide != null) _skipMarker(_skipSide!),
+                      _controls(context),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+    );
+  }
+
+  Widget _subtitles() {
+    return ListenableBuilder(
+      listenable: Listenable.merge([_session, _session.settings]),
+      builder: (context, _) {
+        final mode = _session.settings.subtitleMode;
+        final translated =
+            mode == .translation && _session.translatedCues.isNotEmpty;
+        if (mode == .off) return const SizedBox.shrink();
+        final cues = translated ? _session.translatedCues : _session.cues;
+        final index = translated
+            ? _session.translationActiveIndex
+            : _session.activeIndex;
+        final recording = _session.recording;
+        final language = translated || recording == null
+            ? _session.languages.resolve('en')
+            : _session.languages.resolve(recording.lang);
+        return AnimatedPositioned(
+          duration: _fade,
+          left: 24,
+          right: 24,
+          bottom: _controlsShown ? 112 : 24,
+          child: SafeArea(
+            top: false,
+            child: ValueListenableBuilder<int>(
+              valueListenable: index,
+              builder: (context, i, _) => i < 0 || i >= cues.length
+                  ? const SizedBox.shrink()
+                  : _SubtitleText(
+                      lines: subtitleLines(cues[i]),
+                      language: language,
+                    ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _skipMarker(int side) {
+    return Align(
+      alignment: side < 0 ? const Alignment(-0.6, 0) : const Alignment(0.6, 0),
+      child: IgnorePointer(
+        child: _RoundButton(
+          icon: side < 0 ? Icons.replay_10 : Icons.forward_10,
+          size: 64,
+        ),
+      ),
+    );
+  }
+
+  Widget _controls(BuildContext context) {
+    final player = _session.player;
+    return Positioned.fill(
+      child: IgnorePointer(
+        ignoring: !_controlsShown,
+        child: AnimatedOpacity(
+          opacity: _controlsShown ? 1 : 0,
+          duration: _fade,
+          child: Listener(
+            behavior: .translucent,
+            onPointerDown: (_) => _scheduleHide(),
+            child: Stack(
+              children: [
+                const Positioned.fill(
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: .topCenter,
+                          end: .bottomCenter,
+                          colors: [
+                            Colors.black54,
+                            Colors.transparent,
+                            Colors.transparent,
+                            Colors.black87,
+                          ],
+                          stops: [0, 0.25, 0.6, 1],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                SafeArea(
+                  child: Row(
+                    children: [
+                      IconButton(
+                        tooltip: 'Exit fullscreen',
+                        icon: const Icon(Icons.arrow_back),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                      Expanded(
+                        child: Text(
+                          _session.recording?.name ?? '',
+                          maxLines: 1,
+                          overflow: .ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Center(
+                  child: Row(
+                    mainAxisSize: .min,
+                    children: [
+                      _RoundButton(
+                        icon: Icons.replay_10,
+                        size: 56,
+                        tooltip: 'Back 10 seconds',
+                        onPressed: () => _session.seekBy(-_skip),
+                      ),
+                      const SizedBox(width: 40),
+                      StreamBuilder<bool>(
+                        stream: player.playingStream,
+                        builder: (context, snap) {
+                          final playing = snap.data ?? player.playing;
+                          return _RoundButton(
+                            icon: playing ? Icons.pause : Icons.play_arrow,
+                            size: 76,
+                            tooltip: playing ? 'Pause' : 'Play',
+                            onPressed: playing ? player.pause : player.play,
+                          );
+                        },
+                      ),
+                      const SizedBox(width: 40),
+                      _RoundButton(
+                        icon: Icons.forward_10,
+                        size: 56,
+                        tooltip: 'Forward 10 seconds',
+                        onPressed: () => _session.seekBy(_skip),
+                      ),
+                    ],
+                  ),
+                ),
+                Align(
+                  alignment: .bottomCenter,
+                  child: SafeArea(
+                    top: false,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                      child: Column(
+                        mainAxisSize: .min,
+                        children: [
+                          PositionBar(player: player),
+                          Row(
+                            children: [
+                              SpeedButton(session: _session),
+                              const Spacer(),
+                              ListenableBuilder(
+                                listenable: _session.settings,
+                                builder: (context, _) {
+                                  final mode = _session.settings.subtitleMode;
+                                  return TextButton.icon(
+                                    onPressed: _cycleSubtitles,
+                                    icon: Icon(
+                                      mode == .off
+                                          ? Icons.closed_caption_off_outlined
+                                          : Icons.closed_caption,
+                                    ),
+                                    label: Text(_subtitleLabel(mode)),
+                                  );
+                                },
+                              ),
+                              IconButton(
+                                tooltip: 'Exit fullscreen',
+                                icon: const Icon(Icons.fullscreen_exit),
+                                onPressed: () => Navigator.pop(context),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A white icon on a dark circle.
+class _RoundButton extends StatelessWidget {
+  const _RoundButton({
+    required this.icon,
+    required this.size,
+    this.tooltip,
+    this.onPressed,
+  });
+
+  final IconData icon;
+  final double size;
+  final String? tooltip;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed ?? () {},
+      iconSize: size * 0.55,
+      style: IconButton.styleFrom(
+        backgroundColor: Colors.black45,
+        foregroundColor: Colors.white,
+        fixedSize: Size.square(size),
+      ),
+      icon: Icon(icon),
+    );
+  }
+}
+
+/// The lines of one subtitle, each on a dark band, in the direction and size
+/// [language] gives it.
+class _SubtitleText extends StatelessWidget {
+  const _SubtitleText({required this.lines, required this.language});
+
+  final List<String> lines;
+  final Language language;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = Theme.of(context).textTheme.titleMedium?.copyWith(
+      color: Colors.white,
+      height: 1.4,
+      shadows: const [Shadow(blurRadius: 4)],
+    );
+    return Column(
+      mainAxisSize: .min,
+      children: [
+        for (final line in lines)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                child: Text(
+                  line,
+                  textAlign: .center,
+                  textDirection: lineIsRtl(line, rtl: language.rtl)
+                      ? .rtl
+                      : .ltr,
+                  textScaler: TextScaler.linear(language.textScale),
+                  style: style,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}

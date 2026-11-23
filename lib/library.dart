@@ -1,0 +1,312 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
+
+import 'languages.dart';
+
+const audioExts = {'.mp3', '.m4a', '.ogg', '.opus', '.wav', '.flac', '.aac'};
+const videoExts = {'.mp4', '.mov', '.mkv', '.webm', '.avi', '.m4v'};
+
+/// The files kept in a recording's sidecar folder.
+enum Sidecar {
+  transcriptSrt('transcript.srt'),
+  transcriptTxt('transcript.txt'),
+  lang('lang'),
+  translation('translation.srt'),
+  summary('summary.md'),
+  speakers('speakers.json'),
+  overrides('speaker-overrides.json'),
+  notes('notes.json'),
+  audio('audio.mp3');
+
+  const Sidecar(this.fileName);
+
+  final String fileName;
+}
+
+class Recording {
+  const Recording({
+    required this.file,
+    required this.relPath,
+    required this.lang,
+    required this.hasTranscript,
+    required this.hasTranslation,
+    required this.hasSummary,
+  });
+
+  final File file;
+
+  /// Path relative to the library root, with forward slashes.
+  final String relPath;
+  final String lang;
+  final bool hasTranscript;
+  final bool hasTranslation;
+  final bool hasSummary;
+
+  String get name => p.basenameWithoutExtension(file.path);
+  bool get isVideo => videoExts.contains(p.extension(file.path).toLowerCase());
+}
+
+class LibrarySection {
+  const LibrarySection(this.title, this.recordings, {this.folder});
+
+  final String title;
+  final List<Recording> recordings;
+
+  /// The folder's directory, or null for the section of loose files.
+  final Directory? folder;
+}
+
+const looseSectionTitle = 'Other';
+
+/// A library change that cannot be made, with a message for the user.
+class LibraryException implements Exception {
+  const LibraryException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+/// The on-disk library: recordings at the root or one folder deep, each with a
+/// hidden sidecar folder `.<basename>/` next to it.
+class Library {
+  Library(this.root);
+
+  final Directory root;
+
+  Directory sidecarDir(File recording) {
+    return Directory(
+      p.join(
+        recording.parent.path,
+        '.${p.basenameWithoutExtension(recording.path)}',
+      ),
+    );
+  }
+
+  /// The cached summary of a whole folder, for mode "flat" or "hier".
+  File folderSummaryFile(Directory folder, String mode) {
+    return File(p.join(folder.path, '.summary-$mode.md'));
+  }
+
+  File sidecarFile(File recording, Sidecar key) {
+    return File(p.join(sidecarDir(recording).path, key.fileName));
+  }
+
+  /// The audio to play, upload or process: a video's extracted sidecar audio
+  /// once it exists, else the recording itself.
+  File playbackAudio(File recording) {
+    if (videoExts.contains(p.extension(recording.path).toLowerCase())) {
+      final extracted = sidecarFile(recording, Sidecar.audio);
+      if (extracted.existsSync()) return extracted;
+    }
+    return recording;
+  }
+
+  String langOf(File recording) {
+    final f = sidecarFile(recording, Sidecar.lang);
+    if (f.existsSync()) {
+      final code = f.readAsStringSync().trim();
+      if (isValidLangCode(code)) return code;
+    }
+    return defaultLang;
+  }
+
+  /// A sidecar JSON object of string values, or empty when absent or invalid.
+  Map<String, String> readStringMap(File recording, Sidecar key) {
+    final f = sidecarFile(recording, key);
+    if (!f.existsSync()) return {};
+    try {
+      final d = jsonDecode(f.readAsStringSync());
+      if (d is Map) return d.map((k, v) => MapEntry('$k', '$v'));
+    } on FormatException {
+      // Falls through to empty.
+    }
+    return {};
+  }
+
+  File? recordingAt(String relPath) {
+    final f = File(p.joinAll([root.path, ...relPath.split('/')]));
+    return f.existsSync() && _isMedia(f) ? f : null;
+  }
+
+  Recording describe(File file) {
+    return Recording(
+      file: file,
+      relPath: p.split(p.relative(file.path, from: root.path)).join('/'),
+      lang: langOf(file),
+      hasTranscript: sidecarFile(file, Sidecar.transcriptSrt).existsSync(),
+      hasTranslation: sidecarFile(file, Sidecar.translation).existsSync(),
+      hasSummary: sidecarFile(file, Sidecar.summary).existsSync(),
+    );
+  }
+
+  /// Folders sorted by name, followed by the loose files when there are any.
+  List<LibrarySection> scan() {
+    root.createSync(recursive: true);
+    final sections = <LibrarySection>[];
+    final top = _sorted(root);
+    for (final dir in top.whereType<Directory>()) {
+      if (p.basename(dir.path).startsWith('.')) continue;
+      sections.add(
+        LibrarySection(p.basename(dir.path), recordingsIn(dir), folder: dir),
+      );
+    }
+    final loose = [
+      for (final f in top.whereType<File>())
+        if (_isMedia(f)) describe(f),
+    ];
+    if (loose.isNotEmpty) {
+      sections.add(LibrarySection(looseSectionTitle, loose));
+    }
+    return sections;
+  }
+
+  /// The recordings directly inside [dir], sorted by path.
+  List<Recording> recordingsIn(Directory dir) {
+    return [
+      for (final f in _sorted(dir).whereType<File>())
+        if (_isMedia(f)) describe(f),
+    ];
+  }
+
+  /// The top-level folders, sorted by name.
+  List<Directory> folders() {
+    root.createSync(recursive: true);
+    return [
+      for (final dir in _sorted(root).whereType<Directory>())
+        if (!p.basename(dir.path).startsWith('.')) dir,
+    ];
+  }
+
+  /// A trimmed file or folder name, rejected when it is empty, hidden, or
+  /// contains a path separator.
+  String checkName(String raw) {
+    final name = raw.trim();
+    if (name.isEmpty) throw const LibraryException('Enter a name');
+    if (name.startsWith('.')) {
+      throw const LibraryException('A name cannot start with a dot');
+    }
+    if (name.contains('/') || name.contains('\\')) {
+      throw const LibraryException('A name cannot contain a slash');
+    }
+    return name;
+  }
+
+  /// Whether [dir] already holds a recording named [stem], with any
+  /// extension, or its sidecar folder.
+  bool stemTaken(Directory dir, String stem) {
+    if (Directory(p.join(dir.path, '.$stem')).existsSync()) return true;
+    if (!dir.existsSync()) return false;
+    return dir.listSync().whereType<File>().any(
+      (f) => _isMedia(f) && p.basenameWithoutExtension(f.path) == stem,
+    );
+  }
+
+  /// [stem], or the first of "stem (2)", "stem (3)" and so on that is free
+  /// in [dir].
+  String freeStem(Directory dir, String stem) {
+    if (!stemTaken(dir, stem)) return stem;
+    for (var n = 2; ; n++) {
+      final candidate = '$stem ($n)';
+      if (!stemTaken(dir, candidate)) return candidate;
+    }
+  }
+
+  Directory createFolder(String rawName) {
+    final dir = Directory(p.join(root.path, checkName(rawName)));
+    if (dir.existsSync()) {
+      throw const LibraryException('A folder with that name already exists');
+    }
+    return dir..createSync(recursive: true);
+  }
+
+  Directory renameFolder(Directory folder, String rawName) {
+    final target = p.join(root.path, checkName(rawName));
+    if (target == folder.path) return folder;
+    if (Directory(target).existsSync()) {
+      throw const LibraryException('A folder with that name already exists');
+    }
+    return folder.renameSync(target);
+  }
+
+  /// Copies [source] into [folder] (the root when null) under a free name.
+  /// Returns the new recording.
+  Future<File> importFile(
+    File source,
+    Directory? folder, {
+    String? name,
+  }) async {
+    final fileName = name ?? p.basename(source.path);
+    final ext = p.extension(fileName);
+    if (!_isMediaExtension(ext)) {
+      throw LibraryException('$fileName is not an audio or video file');
+    }
+    final dir = folder ?? root;
+    dir.createSync(recursive: true);
+    final stem = freeStem(dir, checkName(p.basenameWithoutExtension(fileName)));
+    return source.copy(p.join(dir.path, '$stem$ext'));
+  }
+
+  /// Moves [recording] and its sidecar folder to [dir] under [stem].
+  File _relocate(File recording, Directory dir, String stem) {
+    final sidecar = sidecarDir(recording);
+    final target = File(
+      p.join(dir.path, '$stem${p.extension(recording.path)}'),
+    );
+    dir.createSync(recursive: true);
+    recording.renameSync(target.path);
+    if (sidecar.existsSync()) sidecar.renameSync(sidecarDir(target).path);
+    return target;
+  }
+
+  File renameRecording(File recording, String rawStem) {
+    final stem = checkName(rawStem);
+    if (stem == p.basenameWithoutExtension(recording.path)) return recording;
+    if (stemTaken(recording.parent, stem)) {
+      throw const LibraryException(
+        'A recording with that name already exists here',
+      );
+    }
+    return _relocate(recording, recording.parent, stem);
+  }
+
+  /// Moves [recording] to [folder], or to the root when null.
+  File moveRecording(File recording, Directory? folder) {
+    final dir = folder ?? root;
+    if (dir.path == recording.parent.path) return recording;
+    final stem = p.basenameWithoutExtension(recording.path);
+    if (stemTaken(dir, stem)) {
+      throw const LibraryException(
+        'A recording with that name already exists there',
+      );
+    }
+    return _relocate(recording, dir, stem);
+  }
+
+  /// Moves [recording] and its sidecar folder to [dir], renaming it when the
+  /// name is taken there.
+  File relocateFreely(File recording, Directory dir) {
+    final stem = p.basenameWithoutExtension(recording.path);
+    return _relocate(recording, dir, freeStem(dir, stem));
+  }
+
+  List<FileSystemEntity> _sorted(Directory dir) {
+    return dir.listSync()..sort((a, b) => a.path.compareTo(b.path));
+  }
+
+  /// Whether a file called [name] can be a recording.
+  bool isMediaName(String name) => _isMediaExtension(p.extension(name));
+
+  bool _isMediaExtension(String ext) {
+    final lower = ext.toLowerCase();
+    return audioExts.contains(lower) || videoExts.contains(lower);
+  }
+
+  bool _isMedia(File f) {
+    if (p.basename(f.path).startsWith('.')) return false;
+    return _isMediaExtension(p.extension(f.path));
+  }
+}

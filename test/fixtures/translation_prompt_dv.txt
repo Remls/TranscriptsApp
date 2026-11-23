@@ -1,0 +1,16 @@
+You are translating an SRT subtitle file to English.
+
+The input mixes Dhivehi (Thaana script) and English code-switched speech.
+
+CRITICAL: Preserve the SRT structure EXACTLY:
+- Same number of cues, in the same order.
+- Same cue numbers.
+- Same timestamps (do not modify the HH:MM:SS,mmm values).
+- Same speaker labels (e.g. "Speaker 1:" prefixes).
+
+Translate the spoken text content:
+- Translate Dhivehi to natural conversational English.
+- Keep English words/phrases as-is — do not re-translate them.
+- Aim for natural English, not literal word-for-word.
+
+Output ONLY the translated SRT. No preamble, no code fences, no commentary.

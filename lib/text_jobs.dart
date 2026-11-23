@@ -1,0 +1,347 @@
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
+
+import 'job.dart';
+import 'languages.dart';
+import 'library.dart';
+import 'media_tools.dart';
+import 'notes.dart';
+import 'prompts.dart';
+import 'srt.dart';
+import 'text_generator.dart';
+import 'transcription_job.dart';
+
+/// The cue text of a recording's [source] SRT as "Name: text" lines, with
+/// speaker overrides and custom names applied. [notes] are placed between
+/// the lines at their times. Null when the file does not exist.
+String? speakerLines(
+  Library library,
+  File recording,
+  Sidecar source, {
+  List<Note> notes = const [],
+  Map<String, int> pictureNumbers = const {},
+}) {
+  final srt = library.sidecarFile(recording, source);
+  if (!srt.existsSync()) return null;
+  final cues = parseSrt(srt.readAsStringSync());
+  final overrides = library.readStringMap(recording, Sidecar.overrides);
+  final names = library.readStringMap(recording, Sidecar.speakers);
+  final lines = <String>[];
+  for (final row in transcriptRows(cues, notes)) {
+    if (row is Note) {
+      final line = noteLine(row, picture: pictureNumbers[row.id]);
+      if (line != null) lines.add(line);
+      continue;
+    }
+    final ci = row as int;
+    for (final (ii, item) in cues[ci].items.indexed) {
+      final speaker = overrides['$ci:$ii'] ?? item.speaker;
+      lines.add(
+        speaker == null
+            ? item.text
+            : '${names[speaker] ?? 'Speaker $speaker'}: ${item.text}',
+      );
+    }
+  }
+  return lines.join('\n');
+}
+
+/// The English transcript as speaker lines with the user's notes in place,
+/// as given to the summarizer. Reads the translation, or the transcript
+/// itself for an English recording. Null when that file does not exist.
+String? translatedTranscriptText(Library library, File recording) {
+  return speakerLines(
+    library,
+    recording,
+    library.langOf(recording) == 'en'
+        ? Sidecar.transcriptSrt
+        : Sidecar.translation,
+    notes: readNotes(library, recording),
+  );
+}
+
+/// What the summarizer is given for one recording.
+class SummaryInput {
+  const SummaryInput(this.text, this.images, {required this.hasNotes});
+
+  /// The English transcript with notes in place.
+  final String text;
+
+  /// The notes' pictures, numbered as the note lines name them.
+  final List<PromptImage> images;
+  final bool hasNotes;
+}
+
+/// The summary input for [recording] with its notes' pictures attached.
+/// Null when there is no English transcript to summarize.
+SummaryInput? summaryInput(Library library, File recording) {
+  final notes = readNotes(library, recording);
+  final numbers = <String, int>{};
+  final images = <PromptImage>[];
+  for (final note in notes) {
+    final file = noteImage(library, recording, note);
+    if (file == null) continue;
+    numbers[note.id] = images.length + 1;
+    final ext = p.extension(file.path).toLowerCase();
+    images.add(
+      PromptImage(
+        label: 'Picture ${images.length + 1}:',
+        bytes: file.readAsBytesSync(),
+        mimeType: ext == '.png' ? 'image/png' : 'image/jpeg',
+      ),
+    );
+  }
+  final text = speakerLines(
+    library,
+    recording,
+    library.langOf(recording) == 'en'
+        ? Sidecar.transcriptSrt
+        : Sidecar.translation,
+    notes: notes,
+    pictureNumbers: numbers,
+  );
+  if (text == null || text.isEmpty) return null;
+  return SummaryInput(
+    text,
+    images,
+    hasNotes: images.isNotEmpty || notes.any((n) => n.text.trim().isNotEmpty),
+  );
+}
+
+/// Whether [recording] has a note with text.
+bool hasTextNotes(Library library, File recording) =>
+    readNotes(library, recording).any((n) => n.text.trim().isNotEmpty);
+
+Future<String> _generate(
+  Job job,
+  TextGenerator generator, {
+  required String prompt,
+  required String input,
+  List<PromptImage> images = const [],
+}) async {
+  job.resetOutput();
+  final chunks = generator.generate(
+    job.openClient(),
+    prompt: prompt,
+    input: input,
+    images: images,
+  );
+  await for (final chunk in chunks) {
+    job.appendOutput(chunk);
+  }
+  final text = job.output.toString().trim();
+  if (text.isEmpty) throw const JobFailure('empty response from the model');
+  return text;
+}
+
+Future<void> translateRecording(
+  Job job,
+  Library library,
+  File recording,
+  TextGenerator generator,
+  LanguageList languages,
+) async {
+  final srt = library.sidecarFile(recording, Sidecar.transcriptSrt);
+  if (!srt.existsSync()) throw const JobFailure('no source transcript');
+  final out = await _generate(
+    job,
+    generator,
+    prompt: buildTranslationPrompt(
+      languages.resolve(library.langOf(recording)),
+    ),
+    input: srt.readAsStringSync(),
+  );
+  library
+      .sidecarFile(recording, Sidecar.translation)
+      .writeAsStringSync('${stripCodeFence(out)}\n');
+}
+
+Future<void> summarizeRecording(
+  Job job,
+  Library library,
+  File recording,
+  TextGenerator generator,
+) async {
+  final input = summaryInput(library, recording);
+  if (input == null) {
+    throw const JobFailure(
+      'no English translation yet, translate this recording first',
+    );
+  }
+  final out = await _generate(
+    job,
+    generator,
+    prompt: summaryPromptFor(
+      notes: input.hasNotes,
+      pictures: input.images.isNotEmpty,
+    ),
+    input: input.text,
+    images: input.images,
+  );
+  library.sidecarFile(recording, Sidecar.summary).writeAsStringSync('$out\n');
+}
+
+class TranslationJob extends Job {
+  TranslationJob({
+    required this.library,
+    required this.recording,
+    required this.generator,
+    required this.languages,
+    super.clientFactory,
+  });
+
+  final Library library;
+  final File recording;
+  final TextGenerator generator;
+  final LanguageList languages;
+
+  @override
+  Future<void> perform() {
+    setStatus('Translating with ${generator.model}');
+    return translateRecording(this, library, recording, generator, languages);
+  }
+}
+
+class SummaryJob extends Job {
+  SummaryJob({
+    required this.library,
+    required this.recording,
+    required this.generator,
+    super.clientFactory,
+  });
+
+  final Library library;
+  final File recording;
+  final TextGenerator generator;
+
+  @override
+  Future<void> perform() {
+    setStatus('Summarizing with ${generator.model}');
+    return summarizeRecording(this, library, recording, generator);
+  }
+}
+
+enum FolderSummaryMode {
+  flat('flat'),
+  hierarchical('hier');
+
+  const FolderSummaryMode(this.fileKey);
+
+  /// The mode's name in the summary file name.
+  final String fileKey;
+}
+
+/// Summarizes every recording in a folder as one document. Transcribes,
+/// translates and (in hierarchical mode) summarizes the recordings that lack
+/// those files first.
+class FolderSummaryJob extends Job {
+  FolderSummaryJob({
+    required this.library,
+    required this.folder,
+    required this.mode,
+    required this.language,
+    required this.languages,
+    required this.generator,
+    required this.geminiKey,
+    required this.geminiModel,
+    this.media,
+    super.clientFactory,
+    this.pollInterval = const Duration(seconds: 2),
+  });
+
+  final Library library;
+  final Directory folder;
+  final FolderSummaryMode mode;
+
+  /// The language used to transcribe recordings that have no transcript.
+  final Language language;
+
+  /// The languages of recordings being translated.
+  final LanguageList languages;
+  final TextGenerator generator;
+  final String geminiKey;
+  final String geminiModel;
+  final MediaTools? media;
+  final Duration pollInterval;
+
+  @override
+  Future<void> perform() async {
+    final sources = [for (final r in library.recordingsIn(folder)) r.file];
+    if (sources.isEmpty) throw const JobFailure('no audio in folder');
+    final n = sources.length;
+    String label(int i, File f) => '${i + 1}/$n: ${p.basename(f.path)}';
+
+    for (final (i, file) in sources.indexed) {
+      if (library.sidecarFile(file, Sidecar.transcriptSrt).existsSync()) {
+        continue;
+      }
+      if (geminiKey.isEmpty || geminiModel.isEmpty) {
+        throw const JobFailure(
+          'transcription needs a Gemini API key and model in Settings',
+        );
+      }
+      try {
+        await transcribeRecording(
+          this,
+          library: library,
+          recording: file,
+          language: language,
+          apiKey: geminiKey,
+          model: geminiModel,
+          media: media,
+          pollInterval: pollInterval,
+        );
+      } on JobFailure catch (e) {
+        throw JobFailure(
+          'transcribe failed on ${p.basename(file.path)}: ${e.message}',
+        );
+      }
+      setStatus('Transcribed ${label(i, file)}');
+    }
+
+    for (final (i, file) in sources.indexed) {
+      if (library.langOf(file) == 'en' ||
+          library.sidecarFile(file, Sidecar.translation).existsSync()) {
+        continue;
+      }
+      setStatus('Translating ${label(i, file)}');
+      await translateRecording(this, library, file, generator, languages);
+    }
+
+    if (mode == FolderSummaryMode.hierarchical) {
+      for (final (i, file) in sources.indexed) {
+        if (library.sidecarFile(file, Sidecar.summary).existsSync()) continue;
+        setStatus('Summarizing ${label(i, file)}');
+        await summarizeRecording(this, library, file, generator);
+      }
+    }
+
+    setStatus('Synthesizing the summary of $n recordings');
+    final parts = [
+      for (final file in sources)
+        '## ${p.basenameWithoutExtension(file.path)}\n\n${_content(file)}',
+    ];
+    final out = await _generate(
+      this,
+      generator,
+      prompt: mode == FolderSummaryMode.flat
+          ? folderFlatPromptFor(
+              notes: sources.any((f) => hasTextNotes(library, f)),
+            )
+          : folderHierPrompt,
+      input: parts.join('\n\n'),
+    );
+    library.folderSummaryFile(folder, mode.fileKey).writeAsStringSync('$out\n');
+  }
+
+  String _content(File file) {
+    if (mode == FolderSummaryMode.hierarchical) {
+      return library
+          .sidecarFile(file, Sidecar.summary)
+          .readAsStringSync()
+          .trim();
+    }
+    return translatedTranscriptText(library, file) ?? '';
+  }
+}

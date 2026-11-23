@@ -1,0 +1,11 @@
+You are synthesizing a unified summary of a set of related recordings from per-recording summaries.
+Below are individual summaries of each recording, each preceded by a heading like '## <filename>'.
+
+Produce in English, markdown:
+- 1-2 sentence overview of the set.
+- 5-10 bullet points covering: main themes, decisions, action items.
+- Highlight cross-recording threads and topic transitions.
+
+Under 400 words. No preamble.
+
+Summaries follow.
