@@ -9,13 +9,13 @@ import 'languages.dart';
 import 'pip.dart';
 import 'playback.dart';
 import 'player_bar.dart';
+import 'ruby.dart';
+import 'ruby_text.dart';
 import 'session.dart';
 import 'settings.dart';
 import 'srt.dart';
 import 'theme.dart';
 import 'video_panel.dart';
-import 'ruby.dart';
-import 'ruby_text.dart';
 
 const _hideAfter = Duration(seconds: 3);
 const _fade = Duration(milliseconds: 200);
@@ -72,8 +72,11 @@ class FullscreenVideo extends StatefulWidget {
   State<FullscreenVideo> createState() => _FullscreenVideoState();
 }
 
-class _FullscreenVideoState extends State<FullscreenVideo> {
+class _FullscreenVideoState extends State<FullscreenVideo>
+    with WidgetsBindingObserver {
   bool _controlsShown = true;
+  bool _exiting = false;
+  Completer<void>? _portrait;
   Timer? _hideTimer;
   StreamSubscription<bool>? _playingSub;
 
@@ -88,6 +91,7 @@ class _FullscreenVideoState extends State<FullscreenVideo> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     widget.picture.fullscreen = true;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     if (widget.picture.controller.value.aspectRatio > 1) {
@@ -108,6 +112,7 @@ class _FullscreenVideoState extends State<FullscreenVideo> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _hideTimer?.cancel();
     skipIntervalTimer?.cancel();
     _playingSub?.cancel();
@@ -115,6 +120,40 @@ class _FullscreenVideoState extends State<FullscreenVideo> {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations(const []);
     super.dispose();
+  }
+
+  bool get _isPortrait {
+    final size =
+        WidgetsBinding.instance.platformDispatcher.implicitView!.physicalSize;
+    return size.height >= size.width;
+  }
+
+  @override
+  void didChangeMetrics() {
+    final portrait = _portrait;
+    if (portrait != null && !portrait.isCompleted && _isPortrait) {
+      portrait.complete();
+    }
+  }
+
+  /// Leaves fullscreen, turning the screen back to portrait first so the
+  /// recording screen is never drawn in landscape on the way out.
+  Future<void> _exit() async {
+    if (_exiting) return;
+    setState(() => _exiting = true);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    if (!_isPortrait) {
+      final portrait = _portrait = Completer<void>();
+      await SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+      ]);
+      await portrait.future.timeout(
+        const Duration(seconds: 1),
+        onTimeout: () {},
+      );
+      await WidgetsBinding.instance.endOfFrame;
+    }
+    if (mounted) Navigator.pop(context);
   }
 
   void _scheduleHide() {
@@ -153,44 +192,52 @@ class _FullscreenVideoState extends State<FullscreenVideo> {
   @override
   Widget build(BuildContext context) {
     final scheme = darkVariant(Theme.of(context).colorScheme);
-    return ListenableBuilder(
-      listenable: widget.pip,
-      builder: (context, _) => widget.pip.inPip
-          ? PipVideo(picture: widget.picture)
-          : Theme(
-              data: appTheme(scheme),
-              child: Scaffold(
-                backgroundColor: Colors.black,
-                body: LayoutBuilder(
-                  builder: (context, constraints) => Stack(
-                    fit: .expand,
-                    children: [
-                      Positioned.fill(
-                        child: GestureDetector(
-                          behavior: .opaque,
-                          onTap: _toggleControls,
-                          onDoubleTapDown: (d) =>
-                              _doubleTapX = d.localPosition.dx,
-                          onDoubleTap: () =>
-                              _doubleTapSkip(constraints.maxWidth),
-                          child: Center(
-                            child: AspectRatio(
-                              aspectRatio:
-                                  widget.picture.controller.value.aspectRatio,
-                              child: VideoPlayer(widget.picture.controller),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _exit();
+      },
+      child: ListenableBuilder(
+        listenable: widget.pip,
+        builder: (context, _) => widget.pip.inPip
+            ? PipVideo(picture: widget.picture)
+            : Theme(
+                data: appTheme(scheme),
+                child: Scaffold(
+                  backgroundColor: Colors.black,
+                  body: LayoutBuilder(
+                    builder: (context, constraints) => Stack(
+                      fit: .expand,
+                      children: [
+                        Positioned.fill(
+                          child: GestureDetector(
+                            behavior: .opaque,
+                            onTap: _toggleControls,
+                            onDoubleTapDown: (d) =>
+                                _doubleTapX = d.localPosition.dx,
+                            onDoubleTap: () =>
+                                _doubleTapSkip(constraints.maxWidth),
+                            child: Center(
+                              child: AspectRatio(
+                                aspectRatio:
+                                    widget.picture.controller.value.aspectRatio,
+                                child: VideoPlayer(widget.picture.controller),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      _subtitles(),
-                      if (skipIntervalSide != null)
-                        skipIntervalMarker(skipIntervalSide!),
-                      _controls(context),
-                    ],
+                        if (!_exiting) ...[
+                          _subtitles(),
+                          if (skipIntervalSide != null)
+                            skipIntervalMarker(skipIntervalSide!),
+                          _controls(context),
+                        ],
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
+      ),
     );
   }
 
@@ -275,7 +322,7 @@ class _FullscreenVideoState extends State<FullscreenVideo> {
                       IconButton(
                         tooltip: 'Exit fullscreen',
                         icon: const Icon(Icons.arrow_back),
-                        onPressed: () => Navigator.pop(context),
+                        onPressed: _exit,
                       ),
                       Expanded(
                         child: Text(
@@ -353,7 +400,7 @@ class _FullscreenVideoState extends State<FullscreenVideo> {
                               IconButton(
                                 tooltip: 'Exit fullscreen',
                                 icon: const Icon(Icons.fullscreen_exit),
-                                onPressed: () => Navigator.pop(context),
+                                onPressed: _exit,
                               ),
                             ],
                           ),
