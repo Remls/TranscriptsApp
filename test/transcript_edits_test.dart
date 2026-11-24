@@ -144,4 +144,38 @@ void main() {
     expect(effectiveSpeaker(cues, const {}, 1, 0), isNull);
     expect(speakerLineCounts(cues, {'0:0': '10'}).keys, ['1', '2', '10']);
   });
+
+  test('deleting lines updates both files and moves speaker changes', () {
+    sidecar(Sidecar.translation).writeAsStringSync(
+      '1\n00:00:01,500 --> 00:00:04,000\nSpeaker 1: uno\nSpeaker 2: dos\n\n'
+      '2\n01:02:03,004 --> 01:02:05,000\nplano\n\n'
+      '3\n01:02:06,000 --> 01:02:07,000\nSpeaker 1: tres\n',
+    );
+    editor.setLineSpeaker(0, 1, '3');
+    editor.setLineSpeaker(2, 0, '2');
+
+    editor.deleteLines([(0, 0), (1, 0)]);
+
+    List<String> lines(Sidecar key) => [
+      for (final cue in parseSrt(sidecar(key).readAsStringSync()))
+        for (final item in cue.items) item.text,
+    ];
+    expect(lines(Sidecar.transcriptSrt), ['two', 'three']);
+    expect(lines(Sidecar.translation), ['dos', 'tres']);
+    expect(sidecar(Sidecar.transcriptTxt).readAsStringSync(), contains('two'));
+    expect(
+      sidecar(Sidecar.transcriptTxt).readAsStringSync(),
+      isNot(contains('one')),
+    );
+    expect(overrides(), {'0:0': '3', '1:0': '2'});
+  });
+
+  test('deleting lines works without a translation', () {
+    editor.deleteLines([(2, 0)]);
+    expect(
+      parseSrt(sidecar(Sidecar.transcriptSrt).readAsStringSync()).length,
+      2,
+    );
+    expect(sidecar(Sidecar.translation).existsSync(), isFalse);
+  });
 }

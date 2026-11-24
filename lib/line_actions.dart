@@ -32,7 +32,7 @@ void _edit(
   }
 }
 
-enum _LineAction { editText, changeSpeaker, renameSpeaker, addNote }
+enum _LineAction { editText, changeSpeaker, renameSpeaker, addNote, delete }
 
 /// The actions for line [item] of cue [cue] in the transcript or translation
 /// shown from [source].
@@ -82,6 +82,11 @@ Future<void> showLineActions(
               title: Text('Rename ${_speakerLabel(session, speaker)}'),
               onTap: () => Navigator.pop(context, _LineAction.renameSpeaker),
             ),
+          ListTile(
+            leading: const Icon(Icons.delete_outline),
+            title: const Text('Delete line'),
+            onTap: () => Navigator.pop(context, _LineAction.delete),
+          ),
         ],
       ),
     ),
@@ -104,6 +109,29 @@ Future<void> showLineActions(
       await renameSpeaker(context, session, speaker!);
     case _LineAction.addNote:
       await editNote(context, session, at: cues[cue].start);
+    case _LineAction.delete:
+      await deleteLines(context, session, [(cue, item)]);
+  }
+}
+
+/// Deletes [lines], each a (cue, item) pair, from the transcript and the
+/// translation after asking.
+Future<void> deleteLines(
+  BuildContext context,
+  Session session,
+  List<(int, int)> lines,
+) async {
+  final count = lines.length;
+  final ok = await _confirm(
+    context,
+    count == 1 ? 'Delete line' : 'Delete $count lines',
+    session.translatedCues.isEmpty
+        ? 'This cannot be undone.'
+        : 'The matching translation ${count == 1 ? 'line is' : 'lines are'} '
+              'deleted too. This cannot be undone.',
+  );
+  if (ok && context.mounted) {
+    _edit(context, session, (e) => e.deleteLines(lines));
   }
 }
 

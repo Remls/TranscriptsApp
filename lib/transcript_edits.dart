@@ -169,4 +169,55 @@ class TranscriptEditor {
 
   /// Drops every manual speaker change, back to the transcript's own labels.
   void resetSpeakerChanges() => _writeMap(Sidecar.overrides, {});
+
+  /// Removes [lines], each a (cue, item) pair, from the transcript and from
+  /// the translation. A cue left with no lines is removed. Manual speaker
+  /// changes move with the lines that remain.
+  void deleteLines(Iterable<(int, int)> lines) {
+    final doomed = lines.toSet();
+    if (doomed.isEmpty) return;
+    final (transcript, moved) = _withoutLines(
+      _cues(Sidecar.transcriptSrt),
+      doomed,
+    );
+    final srt = formatSrt(transcript);
+    library
+        .sidecarFile(recording, Sidecar.transcriptSrt)
+        .writeAsStringSync(srt);
+    library
+        .sidecarFile(recording, Sidecar.transcriptTxt)
+        .writeAsStringSync(srtToPlaintext(srt));
+
+    final translation = library.sidecarFile(recording, Sidecar.translation);
+    if (translation.existsSync()) {
+      final (cues, _) = _withoutLines(_cues(Sidecar.translation), doomed);
+      translation.writeAsStringSync(formatSrt(cues));
+    }
+
+    final overrides = library.readStringMap(recording, Sidecar.overrides);
+    _writeMap(Sidecar.overrides, {
+      for (final MapEntry(:key, :value) in overrides.entries)
+        ?moved[key]: value,
+    });
+  }
+}
+
+/// [cues] without [doomed] lines, and where each remaining line moved, as
+/// "cue:item" keys from old to new. Cues left empty are dropped.
+(List<Cue>, Map<String, String>) _withoutLines(
+  List<Cue> cues,
+  Set<(int, int)> doomed,
+) {
+  final kept = <Cue>[];
+  final moved = <String, String>{};
+  for (final (c, cue) in cues.indexed) {
+    final items = <CueItem>[];
+    for (final (i, item) in cue.items.indexed) {
+      if (doomed.contains((c, i))) continue;
+      moved['$c:$i'] = '${kept.length}:${items.length}';
+      items.add(item);
+    }
+    if (items.isNotEmpty) kept.add(Cue(cue.start, cue.end, items));
+  }
+  return (kept, moved);
 }
