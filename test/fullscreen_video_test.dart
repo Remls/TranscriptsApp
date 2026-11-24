@@ -1,19 +1,28 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:transcripts/fullscreen_video.dart';
-import 'package:transcripts/settings.dart';
 import 'package:transcripts/srt.dart';
 
 import 'languages_fixture.dart';
 
 void main() {
-  test('subtitles cycle off, transcript, translation', () {
-    SubtitleMode next(SubtitleMode m, bool translated) =>
-        nextSubtitleMode(m, hasTranslation: translated);
-    expect(next(.off, true), SubtitleMode.transcript);
-    expect(next(.transcript, true), SubtitleMode.translation);
-    expect(next(.translation, true), SubtitleMode.off);
-    expect(next(.transcript, false), SubtitleMode.off);
+  test('the first available subtitles are chosen, or off', () {
+    SubtitleMode first(
+      List<SubtitleMode> preferred,
+      bool transcript,
+      bool translated,
+    ) => firstSubtitles(
+      preferred,
+      hasTranscript: transcript,
+      hasTranslation: translated,
+    );
+    const summary = [SubtitleMode.translation, SubtitleMode.transcript];
+    expect(first(const [.transcript], true, true), SubtitleMode.transcript);
+    expect(first(const [.transcript], false, true), SubtitleMode.off);
+    expect(first(const [.translation], true, false), SubtitleMode.off);
+    expect(first(summary, true, true), SubtitleMode.translation);
+    expect(first(summary, true, false), SubtitleMode.transcript);
+    expect(first(summary, false, false), SubtitleMode.off);
   });
 
   test('subtitle lines drop speaker labels and empty lines', () {

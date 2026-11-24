@@ -32,7 +32,6 @@ void main() {
     expect(settings.geminiModel, 'gemini-3.8-flash');
     expect(settings.textProvider, TextProvider.gemini);
     expect(settings.themeMode, ThemeMode.system);
-    expect(settings.subtitleMode, SubtitleMode.transcript);
     expect(settings.wallpaperColors, isTrue);
     expect(settings.transcribeLang, 'dv');
 
@@ -40,7 +39,6 @@ void main() {
     await settings.setGeminiModel(' model-x ');
     await settings.setTextProvider(TextProvider.anthropic);
     await settings.setThemeMode(ThemeMode.dark);
-    await settings.setSubtitleMode(SubtitleMode.off);
     await settings.setWallpaperColors(false);
     await settings.setTranscribeLang('ko');
 
@@ -49,7 +47,6 @@ void main() {
     expect(reloaded.geminiModel, 'model-x');
     expect(reloaded.textProvider, TextProvider.anthropic);
     expect(reloaded.themeMode, ThemeMode.dark);
-    expect(reloaded.subtitleMode, SubtitleMode.off);
     expect(reloaded.wallpaperColors, isFalse);
     expect(reloaded.transcribeLang, 'ko');
     expect(prefs.getKeys().any((k) => prefs.get(k) == 'secret'), isFalse);

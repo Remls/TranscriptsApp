@@ -39,12 +39,8 @@ const _anthropicModelPref = 'anthropicModel';
 const _textProviderPref = 'textProvider';
 const _themePref = 'theme';
 const _transcribeLangPref = 'transcribeLang';
-const _subtitlesPref = 'subtitles';
 const _wallpaperColorsPref = 'wallpaperColors';
 const _readingsPref = 'readings';
-
-/// What fullscreen video shows as subtitles.
-enum SubtitleMode { off, transcript, translation }
 
 class Settings extends ChangeNotifier {
   Settings._(this._prefs, this._secrets, this._geminiKey, this._anthropicKey);
@@ -104,14 +100,6 @@ class Settings extends ChangeNotifier {
   /// Whether transcripts show readings above kanji when they have them.
   bool get readings => _prefs.getBool(_readingsPref) ?? true;
 
-  SubtitleMode get subtitleMode {
-    final name = _prefs.getString(_subtitlesPref);
-    return SubtitleMode.values.firstWhere(
-      (m) => m.name == name,
-      orElse: () => SubtitleMode.transcript,
-    );
-  }
-
   Future<void> setGeminiKey(String value) async {
     _geminiKey = value.trim();
     await _writeSecret(_geminiKeyName, _geminiKey);
@@ -143,9 +131,6 @@ class Settings extends ChangeNotifier {
     await _prefs.setBool(_readingsPref, value);
     notifyListeners();
   }
-
-  Future<void> setSubtitleMode(SubtitleMode value) =>
-      _setPref(_subtitlesPref, value.name);
 
   Future<void> setTranscribeLang(String code) =>
       _setPref(_transcribeLangPref, code);

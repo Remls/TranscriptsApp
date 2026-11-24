@@ -12,7 +12,6 @@ import 'player_bar.dart';
 import 'ruby.dart';
 import 'ruby_text.dart';
 import 'session.dart';
-import 'settings.dart';
 import 'srt.dart';
 import 'theme.dart';
 import 'video_panel.dart';
@@ -20,18 +19,20 @@ import 'video_panel.dart';
 const _hideAfter = Duration(seconds: 3);
 const _fade = Duration(milliseconds: 200);
 
-/// The mode after [current] when cycling, skipping the translation when
-/// there is none.
-SubtitleMode nextSubtitleMode(
-  SubtitleMode current, {
+/// What fullscreen video shows as subtitles.
+enum SubtitleMode { off, transcript, translation }
+
+/// The first of [preferred] that the recording has, or off.
+SubtitleMode firstSubtitles(
+  List<SubtitleMode> preferred, {
+  required bool hasTranscript,
   required bool hasTranslation,
 }) {
-  final next = switch (current) {
-    .off => SubtitleMode.transcript,
-    .transcript => SubtitleMode.translation,
-    .translation => SubtitleMode.off,
-  };
-  return next == .translation && !hasTranslation ? .off : next;
+  for (final mode in preferred) {
+    if (mode == .transcript && hasTranscript) return mode;
+    if (mode == .translation && hasTranslation) return mode;
+  }
+  return .off;
 }
 
 /// The text lines of [cue], without speaker labels, taken from [readings]
@@ -48,12 +49,6 @@ List<String> subtitleLines(Cue cue, {Cue? readings}) {
   ];
 }
 
-String _subtitleLabel(SubtitleMode mode) => switch (mode) {
-  .off => 'Off',
-  .transcript => 'Transcript',
-  .translation => 'Translation',
-};
-
 /// The video of [picture] filling the screen, with playback controls that
 /// fade out while it plays, and subtitles.
 class FullscreenVideo extends StatefulWidget {
@@ -62,11 +57,15 @@ class FullscreenVideo extends StatefulWidget {
     required this.picture,
     required this.session,
     required this.pip,
+    required this.subtitles,
   });
 
   final VideoPicture picture;
   final Session session;
   final PipController pip;
+
+  /// The subtitles shown when the screen opens.
+  final SubtitleMode subtitles;
 
   @override
   State<FullscreenVideo> createState() => _FullscreenVideoState();
@@ -76,6 +75,7 @@ class _FullscreenVideoState extends State<FullscreenVideo>
     with WidgetsBindingObserver {
   bool _controlsShown = true;
   bool _exiting = false;
+  late SubtitleMode _subtitleMode = widget.subtitles;
   Completer<void>? _portrait;
   Timer? _hideTimer;
   StreamSubscription<bool>? _playingSub;
@@ -179,13 +179,44 @@ class _FullscreenVideoState extends State<FullscreenVideo>
     });
   }
 
-  void _cycleSubtitles() {
-    final settings = _session.settings;
-    settings.setSubtitleMode(
-      nextSubtitleMode(
-        settings.subtitleMode,
-        hasTranslation: _session.translatedCues.isNotEmpty,
+  Widget _subtitlesButton() {
+    final languages = _session.languages;
+    final lang = _session.recording?.lang;
+    final options = [
+      (SubtitleMode.off, 'Off', true),
+      (
+        SubtitleMode.transcript,
+        'Transcript (${lang == null ? '' : languages.resolve(lang).name})',
+        _session.cues.isNotEmpty,
       ),
+      (
+        SubtitleMode.translation,
+        'Translation (${languages.resolve('en').name})',
+        _session.translatedCues.isNotEmpty,
+      ),
+    ];
+    return PopupMenuButton<SubtitleMode>(
+      tooltip: 'Subtitles',
+      icon: Icon(
+        _subtitleMode == .off
+            ? Icons.closed_caption_disabled_outlined
+            : Icons.closed_caption,
+      ),
+      onOpened: () => _hideTimer?.cancel(),
+      onCanceled: _scheduleHide,
+      onSelected: (mode) {
+        setState(() => _subtitleMode = mode);
+        _scheduleHide();
+      },
+      itemBuilder: (context) => [
+        for (final (mode, label, available) in options)
+          CheckedPopupMenuItem(
+            value: mode,
+            enabled: available,
+            checked: mode == _subtitleMode,
+            child: Text(label),
+          ),
+      ],
     );
   }
 
@@ -245,7 +276,7 @@ class _FullscreenVideoState extends State<FullscreenVideo>
     return ListenableBuilder(
       listenable: Listenable.merge([_session, _session.settings]),
       builder: (context, _) {
-        final mode = _session.settings.subtitleMode;
+        final mode = _subtitleMode;
         final translated =
             mode == .translation && _session.translatedCues.isNotEmpty;
         final recording = _session.recording;
@@ -382,21 +413,7 @@ class _FullscreenVideoState extends State<FullscreenVideo>
                             children: [
                               SpeedButton(session: _session),
                               const Spacer(),
-                              ListenableBuilder(
-                                listenable: _session.settings,
-                                builder: (context, _) {
-                                  final mode = _session.settings.subtitleMode;
-                                  return TextButton.icon(
-                                    onPressed: _cycleSubtitles,
-                                    icon: Icon(
-                                      mode == .off
-                                          ? Icons.closed_caption_off_outlined
-                                          : Icons.closed_caption,
-                                    ),
-                                    label: Text(_subtitleLabel(mode)),
-                                  );
-                                },
-                              ),
+                              _subtitlesButton(),
                               IconButton(
                                 tooltip: 'Exit fullscreen',
                                 icon: const Icon(Icons.fullscreen_exit),

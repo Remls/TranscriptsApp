@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:material_ui/material_ui.dart';
 
+import 'fullscreen_video.dart';
 import 'furigana_icon.dart';
 import 'library_list.dart';
 import 'job.dart';
@@ -703,6 +704,18 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
                       session: _session,
                       picture: picture,
                       pip: widget.pip,
+                      subtitles: () => firstSubtitles(
+                        switch (tabs[_tabIndex.clamp(0, tabs.length - 1)]) {
+                          _Tab.transcript => [SubtitleMode.transcript],
+                          _Tab.translation => [SubtitleMode.translation],
+                          _Tab.summary => [
+                            SubtitleMode.translation,
+                            SubtitleMode.transcript,
+                          ],
+                        },
+                        hasTranscript: _session.cues.isNotEmpty,
+                        hasTranslation: _session.translatedCues.isNotEmpty,
+                      ),
                     ),
                   Expanded(
                     child: SwipeBack(

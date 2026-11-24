@@ -46,18 +46,26 @@ class VideoPanel extends StatelessWidget {
     required this.session,
     required this.picture,
     required this.pip,
+    required this.subtitles,
   });
 
   final Session session;
   final VideoPicture picture;
   final PipController pip;
 
+  /// The subtitles fullscreen opens with.
+  final SubtitleMode Function() subtitles;
+
   void _openFullscreen(BuildContext context) {
     Navigator.push(
       context,
       MaterialPageRoute<void>(
-        builder: (_) =>
-            FullscreenVideo(picture: picture, session: session, pip: pip),
+        builder: (_) => FullscreenVideo(
+          picture: picture,
+          session: session,
+          pip: pip,
+          subtitles: subtitles(),
+        ),
       ),
     );
   }
