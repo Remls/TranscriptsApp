@@ -1,5 +1,6 @@
 import 'package:material_ui/material_ui.dart';
 
+import 'languages.dart';
 import 'library.dart';
 import 'note_editor.dart';
 import 'session.dart';
@@ -32,22 +33,33 @@ void _edit(
   }
 }
 
-enum _LineAction { editText, changeSpeaker, renameSpeaker, addNote, delete }
+enum _LineAction {
+  select,
+  editText,
+  changeSpeaker,
+  renameSpeaker,
+  addNote,
+  delete,
+}
 
 /// The actions for line [item] of cue [cue] in the transcript or translation
-/// shown from [source].
+/// shown from [source]. [onSelect] starts selecting lines with this one.
 Future<void> showLineActions(
   BuildContext context,
   Session session, {
   required Sidecar source,
   required int cue,
   required int item,
+  required VoidCallback onSelect,
 }) async {
   final cues = source == Sidecar.translation
       ? session.translatedCues
       : session.cues;
   final line = cues[cue].items[item];
   final speaker = effectiveSpeaker(cues, session.speakerOverrides, cue, item);
+  final rtl =
+      source != Sidecar.translation &&
+      session.languages.resolve(session.recording!.lang).rtl;
   final action = await showModalBottomSheet<_LineAction>(
     context: context,
     showDragHandle: true,
@@ -56,10 +68,20 @@ Future<void> showLineActions(
         mainAxisSize: .min,
         children: [
           ListTile(
-            title: Text(line.text, maxLines: 2, overflow: .ellipsis),
+            title: Text(
+              line.text,
+              maxLines: 2,
+              overflow: .ellipsis,
+              textDirection: lineIsRtl(line.text, rtl: rtl) ? .rtl : .ltr,
+            ),
             subtitle: speaker == null
                 ? null
                 : Text(_speakerLabel(session, speaker)),
+          ),
+          ListTile(
+            leading: const Icon(Icons.checklist),
+            title: const Text('Select multiple lines'),
+            onTap: () => Navigator.pop(context, _LineAction.select),
           ),
           ListTile(
             leading: const Icon(Icons.edit_outlined),
@@ -93,6 +115,8 @@ Future<void> showLineActions(
   );
   if (action == null || !context.mounted) return;
   switch (action) {
+    case _LineAction.select:
+      onSelect();
     case _LineAction.editText:
       await _editText(context, session, source, cue, item, line.text);
     case _LineAction.changeSpeaker:
@@ -114,9 +138,29 @@ Future<void> showLineActions(
   }
 }
 
+/// Gives [lines], each a (cue, item) pair, to a speaker the user picks.
+/// Resolves to whether anything changed.
+Future<bool> changeSpeakerOf(
+  BuildContext context,
+  Session session,
+  List<(int, int)> lines,
+) async {
+  final picked = await _pickSpeaker(
+    context,
+    session,
+    title: lines.length == 1
+        ? 'Who says this line?'
+        : 'Who says these ${lines.length} lines?',
+    allowNew: true,
+  );
+  if (picked == null || !context.mounted) return false;
+  _edit(context, session, (e) => e.setLinesSpeaker(lines, picked));
+  return true;
+}
+
 /// Deletes [lines], each a (cue, item) pair, from the transcript and the
-/// translation after asking.
-Future<void> deleteLines(
+/// translation after asking. Resolves to whether they were deleted.
+Future<bool> deleteLines(
   BuildContext context,
   Session session,
   List<(int, int)> lines,
@@ -130,9 +174,9 @@ Future<void> deleteLines(
         : 'The matching translation ${count == 1 ? 'line is' : 'lines are'} '
               'deleted too. This cannot be undone.',
   );
-  if (ok && context.mounted) {
-    _edit(context, session, (e) => e.deleteLines(lines));
-  }
+  if (!ok || !context.mounted) return false;
+  _edit(context, session, (e) => e.deleteLines(lines));
+  return true;
 }
 
 enum _Scope { line, onward, swapOnward }

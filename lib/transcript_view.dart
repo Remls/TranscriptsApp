@@ -43,6 +43,8 @@ class TranscriptView extends StatefulWidget {
     required this.noteImage,
     required this.onPictureTap,
     this.search,
+    this.selected,
+    this.onLineTap,
   });
 
   final List<Cue> cues;
@@ -68,6 +70,11 @@ class TranscriptView extends StatefulWidget {
   /// The open search, or null when none is open. While one is open the list
   /// shows the current match instead of following playback.
   final SearchHighlight? search;
+
+  /// The selected lines as (cue, item) pairs, or null when not selecting.
+  /// While selecting, tapping a line calls [onLineTap] instead of seeking.
+  final Set<(int, int)>? selected;
+  final void Function(int cue, int item)? onLineTap;
 
   @override
   State<TranscriptView> createState() => _TranscriptViewState();
@@ -245,6 +252,13 @@ class _TranscriptViewState extends State<TranscriptView> {
                       onTap: () => widget.onSeek(widget.cues[i].start),
                       onLineLongPress: (item) =>
                           widget.onLineLongPress(i, item),
+                      selected: widget.selected == null
+                          ? null
+                          : {
+                              for (final (c, item) in widget.selected!)
+                                if (c == i) item,
+                            },
+                      onLineTap: (item) => widget.onLineTap?.call(i, item),
                     );
                   },
                 );
@@ -416,6 +430,8 @@ class _CueTile extends StatelessWidget {
     required this.speakerOverrides,
     required this.onTap,
     required this.onLineLongPress,
+    required this.selected,
+    required this.onLineTap,
   });
 
   final Cue cue;
@@ -428,11 +444,16 @@ class _CueTile extends StatelessWidget {
   final VoidCallback onTap;
   final ValueChanged<int> onLineLongPress;
 
+  /// The selected lines of this cue, or null when not selecting.
+  final Set<int>? selected;
+  final ValueChanged<int> onLineTap;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final viewRtl = Directionality.of(context) == .rtl;
+    final selected = this.selected;
     return Material(
       color: active ? scheme.secondaryContainer : Colors.transparent,
       borderRadius: BorderRadius.circular(12),
@@ -446,8 +467,19 @@ class _CueTile extends StatelessWidget {
               for (final (i, item) in cue.items.indexed)
                 GestureDetector(
                   behavior: .opaque,
+                  onTap: selected == null ? null : () => onLineTap(i),
                   onLongPress: () => onLineLongPress(i),
-                  child: _row(theme, i, item, viewRtl),
+                  child: selected == null
+                      ? _row(theme, i, item, viewRtl)
+                      : DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: selected.contains(i)
+                                ? scheme.tertiaryContainer
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: _row(theme, i, item, viewRtl),
+                        ),
                 ),
             ],
           ),

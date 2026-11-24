@@ -142,6 +142,16 @@ class TranscriptEditor {
     _writeMap(Sidecar.overrides, overrides);
   }
 
+  /// Assigns each of [lines], (cue, item) pairs, to [speaker].
+  void setLinesSpeaker(Iterable<(int, int)> lines, String speaker) {
+    final cues = _cues(Sidecar.transcriptSrt);
+    final overrides = library.readStringMap(recording, Sidecar.overrides);
+    for (final (cue, item) in lines) {
+      _setOverride(cues, overrides, cue, item, speaker);
+    }
+    _writeMap(Sidecar.overrides, overrides);
+  }
+
   /// Reassigns lines according to [mapping], from current speaker to new
   /// speaker, starting at line [fromItem] of cue [fromCue] and running to the
   /// end. Lines of speakers not in [mapping] are left alone.

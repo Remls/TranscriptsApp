@@ -187,6 +187,45 @@ void main() {
     expect(line('English only.').textAlign, TextAlign.right);
   });
 
+  testWidgets('while selecting, taps report lines instead of seeking', (
+    tester,
+  ) async {
+    final tapped = <(int, int)>[];
+    double? soughtTo;
+    Future<void> show(Set<(int, int)>? selected) => tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TranscriptView(
+            cues: [
+              Cue(0, 4, const [CueItem('1', 'first'), CueItem('2', 'second')]),
+            ],
+            notes: const [],
+            onNoteTap: (_) {},
+            noteImage: (_) => null,
+            onPictureTap: (_) {},
+            language: shipped('en'),
+            speakerNames: const {},
+            speakerOverrides: const {},
+            activeIndex: ValueNotifier<int>(-1),
+            onSeek: (s) => soughtTo = s,
+            onLineLongPress: (_, _) {},
+            selected: selected,
+            onLineTap: (cue, item) => tapped.add((cue, item)),
+          ),
+        ),
+      ),
+    );
+
+    await show({(0, 1)});
+    await tester.tap(find.text('first'));
+    expect(tapped, [(0, 0)]);
+    expect(soughtTo, isNull);
+
+    await show(null);
+    await tester.tap(find.text('first'));
+    expect(soughtTo, 0);
+  });
+
   testWidgets('notes sit between the lines and open on tap', (tester) async {
     Note? tapped;
     await tester.pumpWidget(

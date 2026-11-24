@@ -178,4 +178,9 @@ void main() {
     );
     expect(sidecar(Sidecar.translation).existsSync(), isFalse);
   });
+
+  test('several lines can be given to one speaker at once', () {
+    editor.setLinesSpeaker([(0, 0), (0, 1), (1, 0)], '2');
+    expect(overrides(), {'0:0': '2', '1:0': '2'});
+  });
 }

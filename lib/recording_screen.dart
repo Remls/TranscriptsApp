@@ -84,6 +84,9 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
   /// searches for, and the index of the current match.
   bool _searching = false;
 
+  /// The selected lines as (cue, item) pairs, or null when not selecting.
+  Set<(int, int)>? _selection;
+
   /// Whether the search field takes the keyboard when it opens.
   bool _focusSearch = true;
   final _searchField = TextEditingController();
@@ -150,6 +153,7 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
               ..addListener(_updatePip));
       _followerPath = path;
       _matchIndex = 0;
+      _selection = null;
     }
     _updatePip();
   }
@@ -203,6 +207,73 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
       _tabIndex = controller.index;
       if (_searching) setState(() => _matchIndex = 0);
     });
+  }
+
+  void _onLineLongPress(Sidecar source, int cue, int item) {
+    if (_selection != null) {
+      _toggleLine(cue, item);
+      return;
+    }
+    showLineActions(
+      context,
+      _session,
+      source: source,
+      cue: cue,
+      item: item,
+      onSelect: () => setState(() => _selection = {(cue, item)}),
+    );
+  }
+
+  void _toggleLine(int cue, int item) => setState(() {
+    final selection = _selection;
+    if (selection == null) return;
+    if (!selection.remove((cue, item))) selection.add((cue, item));
+    if (selection.isEmpty) _selection = null;
+  });
+
+  void _clearSelection() => setState(() => _selection = null);
+
+  /// The selected lines in reading order.
+  List<(int, int)> _selectedLines() {
+    final lines = _selection!.toList()
+      ..sort((a, b) => a.$1 != b.$1 ? a.$1 - b.$1 : a.$2 - b.$2);
+    return lines;
+  }
+
+  PreferredSizeWidget _tabBar(List<_Tab> tabs) =>
+      TabBar(tabs: [for (final t in tabs) Tab(text: t.label)]);
+
+  PreferredSizeWidget _selectionBar(List<_Tab> tabs) {
+    final count = _selection!.length;
+    return AppBar(
+      leading: IconButton(
+        tooltip: 'Stop selecting',
+        icon: const Icon(Icons.close),
+        onPressed: _clearSelection,
+      ),
+      title: Text('$count selected'),
+      actions: [
+        IconButton(
+          tooltip: 'Change speaker',
+          icon: const Icon(Icons.swap_horiz),
+          onPressed: () async {
+            if (await changeSpeakerOf(context, _session, _selectedLines())) {
+              _clearSelection();
+            }
+          },
+        ),
+        IconButton(
+          tooltip: 'Delete',
+          icon: const Icon(Icons.delete_outline),
+          onPressed: () async {
+            if (await deleteLines(context, _session, _selectedLines())) {
+              _clearSelection();
+            }
+          },
+        ),
+      ],
+      bottom: _tabBar(tabs),
+    );
   }
 
   void _openSearch() => setState(() {
@@ -517,80 +588,90 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
     final matchCount = _matchesOn(recording, shown).length;
     final current = matchCount == 0 ? 0 : _matchIndex.clamp(0, matchCount - 1);
     return PopScope(
-      canPop: !_searching,
+      canPop: !_searching && _selection == null,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _closeSearch();
+        if (didPop) return;
+        if (_selection != null) {
+          _clearSelection();
+        } else {
+          _closeSearch();
+        }
       },
       child: Scaffold(
-        appBar: AppBar(
-          leading: _searching
-              ? IconButton(
-                  tooltip: 'Close search',
-                  icon: const Icon(Icons.arrow_back),
-                  onPressed: _closeSearch,
-                )
-              : null,
-          title: _searching
-              ? TextField(
-                  controller: _searchField,
-                  autofocus: _focusSearch,
-                  textInputAction: TextInputAction.search,
-                  onChanged: _onSearchChanged,
-                  onSubmitted: (text) => _onSearchSubmitted(text, matchCount),
-                  decoration: const InputDecoration(
-                    hintText: 'Search',
-                    border: InputBorder.none,
-                  ),
-                )
-              : Text(recording.name),
-          actions: _searching
-              ? [
-                  if (_query.trim().isNotEmpty)
-                    Text(
-                      matchCount == 0
-                          ? 'No matches'
-                          : '${current + 1} of $matchCount',
-                      style: Theme.of(context).textTheme.labelLarge,
-                    ),
-                  IconButton(
-                    tooltip: 'Previous match',
-                    icon: const Icon(Icons.keyboard_arrow_up),
-                    onPressed: matchCount == 0
-                        ? null
-                        : () => setState(
-                            () => _matchIndex = (current - 1) % matchCount,
+        appBar: _selection != null
+            ? _selectionBar(tabs)
+            : AppBar(
+                leading: _searching
+                    ? IconButton(
+                        tooltip: 'Close search',
+                        icon: const Icon(Icons.arrow_back),
+                        onPressed: _closeSearch,
+                      )
+                    : null,
+                title: _searching
+                    ? TextField(
+                        controller: _searchField,
+                        autofocus: _focusSearch,
+                        textInputAction: TextInputAction.search,
+                        onChanged: _onSearchChanged,
+                        onSubmitted: (text) =>
+                            _onSearchSubmitted(text, matchCount),
+                        decoration: const InputDecoration(
+                          hintText: 'Search',
+                          border: InputBorder.none,
+                        ),
+                      )
+                    : Text(recording.name),
+                actions: _searching
+                    ? [
+                        if (_query.trim().isNotEmpty)
+                          Text(
+                            matchCount == 0
+                                ? 'No matches'
+                                : '${current + 1} of $matchCount',
+                            style: Theme.of(context).textTheme.labelLarge,
                           ),
-                  ),
-                  IconButton(
-                    tooltip: 'Next match',
-                    icon: const Icon(Icons.keyboard_arrow_down),
-                    onPressed: matchCount == 0
-                        ? null
-                        : () => setState(
-                            () => _matchIndex = (current + 1) % matchCount,
+                        IconButton(
+                          tooltip: 'Previous match',
+                          icon: const Icon(Icons.keyboard_arrow_up),
+                          onPressed: matchCount == 0
+                              ? null
+                              : () => setState(
+                                  () =>
+                                      _matchIndex = (current - 1) % matchCount,
+                                ),
+                        ),
+                        IconButton(
+                          tooltip: 'Next match',
+                          icon: const Icon(Icons.keyboard_arrow_down),
+                          onPressed: matchCount == 0
+                              ? null
+                              : () => setState(
+                                  () =>
+                                      _matchIndex = (current + 1) % matchCount,
+                                ),
+                        ),
+                      ]
+                    : [
+                        if (recording.isVideo)
+                          IconButton(
+                            tooltip: _showVideo ? 'Hide video' : 'Show video',
+                            icon: Icon(
+                              _showVideo
+                                  ? Icons.videocam_outlined
+                                  : Icons.videocam_off_outlined,
+                            ),
+                            onPressed: () => _setShowVideo(!_showVideo),
                           ),
-                  ),
-                ]
-              : [
-                  if (recording.isVideo)
-                    IconButton(
-                      tooltip: _showVideo ? 'Hide video' : 'Show video',
-                      icon: Icon(
-                        _showVideo
-                            ? Icons.videocam_outlined
-                            : Icons.videocam_off_outlined,
-                      ),
-                      onPressed: () => _setShowVideo(!_showVideo),
-                    ),
-                  IconButton(
-                    tooltip: 'Search',
-                    icon: const Icon(Icons.search),
-                    onPressed: _openSearch,
-                  ),
-                  _menu(recording),
-                ],
-          bottom: TabBar(tabs: [for (final t in tabs) Tab(text: t.label)]),
-        ),
+                        IconButton(
+                          tooltip: 'Search',
+                          icon: const Icon(Icons.search),
+                          onPressed: _openSearch,
+                        ),
+                        _menu(recording),
+                      ],
+                bottom: _tabBar(tabs),
+              ),
         body: _session.loadError != null
             ? _Message(_session.loadError!)
             : Column(
@@ -734,13 +815,10 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
       speakerOverrides: _session.speakerOverrides,
       activeIndex: _session.activeIndex,
       onSeek: _session.seekAndPlay,
-      onLineLongPress: (cue, item) => showLineActions(
-        context,
-        _session,
-        source: Sidecar.transcriptSrt,
-        cue: cue,
-        item: item,
-      ),
+      onLineLongPress: (cue, item) =>
+          _onLineLongPress(Sidecar.transcriptSrt, cue, item),
+      selected: _selection,
+      onLineTap: _toggleLine,
     );
   }
 
@@ -758,13 +836,10 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
       speakerOverrides: _session.speakerOverrides,
       activeIndex: _session.translationActiveIndex,
       onSeek: _session.seekAndPlay,
-      onLineLongPress: (cue, item) => showLineActions(
-        context,
-        _session,
-        source: Sidecar.translation,
-        cue: cue,
-        item: item,
-      ),
+      onLineLongPress: (cue, item) =>
+          _onLineLongPress(Sidecar.translation, cue, item),
+      selected: _selection,
+      onLineTap: _toggleLine,
     );
   }
 }
