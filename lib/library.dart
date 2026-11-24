@@ -5,8 +5,30 @@ import 'package:path/path.dart' as p;
 
 import 'languages.dart';
 
-const audioExts = {'.mp3', '.m4a', '.ogg', '.opus', '.wav', '.flac', '.aac'};
-const videoExts = {'.mp4', '.mov', '.mkv', '.webm', '.avi', '.m4v'};
+const audioExts = {
+  '.mp3',
+  '.m4a',
+  '.m4b',
+  '.ogg',
+  '.opus',
+  '.wav',
+  '.flac',
+  '.aac',
+  '.amr',
+  '.wma',
+};
+const videoExts = {
+  '.mp4',
+  '.mov',
+  '.mkv',
+  '.webm',
+  '.avi',
+  '.m4v',
+  '.3gp',
+  '.wmv',
+  '.ts',
+  '.mts',
+};
 
 /// The files kept in a recording's sidecar folder.
 enum Sidecar {
@@ -18,7 +40,9 @@ enum Sidecar {
   speakers('speakers.json'),
   overrides('speaker-overrides.json'),
   notes('notes.json'),
-  audio('audio.mp3');
+  audio('audio.mp3'),
+  playbackVideo('playback.mkv'),
+  playbackSound('playback.m4a');
 
   const Sidecar(this.fileName);
 
@@ -95,14 +119,11 @@ class Library {
     return File(p.join(sidecarDir(recording).path, key.fileName));
   }
 
-  /// The audio to play, upload or process: a video's extracted sidecar audio
+  /// The audio to upload for transcription: the extracted sidecar audio
   /// once it exists, else the recording itself.
-  File playbackAudio(File recording) {
-    if (videoExts.contains(p.extension(recording.path).toLowerCase())) {
-      final extracted = sidecarFile(recording, Sidecar.audio);
-      if (extracted.existsSync()) return extracted;
-    }
-    return recording;
+  File transcriptionAudio(File recording) {
+    final extracted = sidecarFile(recording, Sidecar.audio);
+    return extracted.existsSync() ? extracted : recording;
   }
 
   String langOf(File recording) {

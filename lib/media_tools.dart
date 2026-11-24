@@ -14,8 +14,23 @@ class MediaException implements Exception {
   String toString() => message;
 }
 
+/// A file's container format and the codecs of its first sound and picture
+/// streams, as `ffprobe` names them. Cover art does not count as a picture.
+typedef MediaStreams = ({String format, String? audio, String? video});
+
 /// The audio and video processing the app needs.
 abstract class MediaTools {
+  /// The container and codecs of [file], or null when it cannot be read.
+  Future<MediaStreams?> streams(File file);
+
+  /// Writes a copy of [input] that Android can play: the sound as AAC and,
+  /// with [keepPicture], the picture as it is.
+  Future<void> convertForPlayback(
+    File input,
+    File output, {
+    required bool keepPicture,
+  });
+
   /// The length of [file] in seconds, or null when it cannot be read.
   Future<double?> duration(File file);
 
@@ -46,6 +61,46 @@ class FfmpegMediaTools implements MediaTools {
     final session = await FFprobeKit.getMediaInformation(file.path);
     final raw = session.getMediaInformation()?.getDuration();
     return raw == null ? null : double.tryParse(raw);
+  }
+
+  @override
+  Future<MediaStreams?> streams(File file) async {
+    final info = (await FFprobeKit.getMediaInformation(file.path))
+        .getMediaInformation();
+    final format = info?.getFormat();
+    if (info == null || format == null) return null;
+    String? first(String type) {
+      for (final s in info.getStreams()) {
+        if (s.getType() != type) continue;
+        final disposition = s.getAllProperties()?['disposition'];
+        if (disposition is Map && disposition['attached_pic'] == 1) continue;
+        return s.getCodec();
+      }
+      return null;
+    }
+
+    return (format: format, audio: first('audio'), video: first('video'));
+  }
+
+  @override
+  Future<void> convertForPlayback(
+    File input,
+    File output, {
+    required bool keepPicture,
+  }) {
+    return _run([
+      '-i',
+      input.path,
+      if (keepPicture) ...['-map', '0:v:0', '-map', '0:a:0?', '-c:v', 'copy'],
+      if (!keepPicture) '-vn',
+      '-sn',
+      '-dn',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '160k',
+      output.path,
+    ], 'converting for playback');
   }
 
   Future<void> _run(List<String> arguments, String what) async {

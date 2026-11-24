@@ -17,6 +17,30 @@ class FakeMediaTools implements MediaTools {
     }
   }
 
+  /// What [streams] reports, by file name. Other files read as AAC sound
+  /// with an H.264 picture in an MP4.
+  final streamsByName = <String, MediaStreams?>{};
+
+  @override
+  Future<MediaStreams?> streams(File file) async {
+    final name = p.basename(file.path);
+    _record('streams $name');
+    if (streamsByName.containsKey(name)) return streamsByName[name];
+    return (format: 'mov,mp4,m4a,3gp,3g2,mj2', audio: 'aac', video: 'h264');
+  }
+
+  @override
+  Future<void> convertForPlayback(
+    File input,
+    File output, {
+    required bool keepPicture,
+  }) async {
+    _record(
+      'convert ${p.basename(input.path)} ${keepPicture ? 'picture' : 'sound'}',
+    );
+    output.writeAsStringSync('playable ${input.readAsStringSync()}');
+  }
+
   @override
   Future<double?> duration(File file) async {
     _record('duration ${p.basename(file.path)}');

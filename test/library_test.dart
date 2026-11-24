@@ -84,13 +84,13 @@ void main() {
     expect(library.langOf(rec), 'dv');
   });
 
-  test('playbackAudio prefers the audio extracted from a video', () {
+  test('transcription uses the extracted audio once it exists', () {
     final video = touch('talk.mp4');
     final audio = touch('song.mp3');
-    expect(library.playbackAudio(video).path, video.path);
+    expect(library.transcriptionAudio(video).path, video.path);
     final extracted = touch('.talk/audio.mp3');
-    expect(library.playbackAudio(video).path, extracted.path);
-    expect(library.playbackAudio(audio).path, audio.path);
+    expect(library.transcriptionAudio(video).path, extracted.path);
+    expect(library.transcriptionAudio(audio).path, audio.path);
   });
 
   test('readStringMap returns an empty map for absent or invalid JSON', () {

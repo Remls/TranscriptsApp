@@ -51,6 +51,7 @@ State is plain `ChangeNotifier` objects.
 - `LibraryScreen` (`library_screen.dart`) is the first screen: the folders and recordings, imports, shared files, library search and the mini player. It pushes `RecordingScreen` (`recording_screen.dart`) for the open recording.
 - `Session` (`session.dart`) owns the open recording, its cues, its `Playback`, and the running jobs.
 - `Playback` (`playback.dart`) is the player interface. `MediaSessionPlayback` (`media_session.dart`) plays audio files with `JustAudioPlayback` and videos, picture and sound together, with `VideoPlayback` (`video_playback.dart`), and shows them in the system media session through `PlaybackHandler` (`audio_service`).
+- `playbackSource` (`playback_source.dart`) checks a recording's codecs with ffprobe. A file Android cannot play gets a converted copy in its sidecar folder, made once and left out of backups and zips.
 - `Settings` wraps `SharedPreferences` and the Keystore-backed secrets.
 - `Library` (`library.dart`) is the on-disk layout. Sidecar paths go through `sidecarDir()` and `sidecarFile()`. Do not build them by hand.
 - `LanguageList` (`languages.dart`) is the user's language list, stored in `<library>/.languages.json`. Direction, font size and prompt notes come from it. Do not hardcode language checks elsewhere.
@@ -69,6 +70,7 @@ audios/
       translation.srt  summary.md
       speakers.json  speaker-overrides.json
       audio.mp3  notes.json  notes/<id>.jpg
+      playback.mkv or playback.m4a
     .summary-flat.md  .summary-hier.md
   .languages.json
   .trash/

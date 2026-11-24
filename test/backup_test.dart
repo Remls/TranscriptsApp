@@ -256,6 +256,20 @@ void main() {
     expect(read(target, 'a.mp3'), 'audio');
   });
 
+  test('playback copies stay out of backups and recording zips', () {
+    touch(source, 'set/a.wma', 'audio');
+    touch(source, 'set/.a/transcript.srt', 'srt');
+    touch(source, 'set/.a/playback.m4a', 'copy');
+    touch(source, 'set/.a/playback.mkv', 'copy');
+    touch(source, 'set/playback.mkv', 'a recording with that name');
+    createBackup(source.path, zipPath, (_) {});
+    expect(zipEntries(), [
+      'set/.a/transcript.srt',
+      'set/a.wma',
+      'set/playback.mkv',
+    ]);
+  });
+
   test('entries that point outside the library are ignored', () {
     writeZip({
       '../escape.mp3': 'bad',

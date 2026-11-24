@@ -11,9 +11,12 @@ import 'media_tools.dart';
 import 'prompts.dart';
 import 'srt.dart';
 
+/// The audio formats Gemini takes as they are. Other files have their audio
+/// extracted to mp3 first.
 const _mimeTypes = {
   '.mp3': 'audio/mpeg',
   '.m4a': 'audio/mp4',
+  '.m4b': 'audio/mp4',
   '.ogg': 'audio/ogg',
   '.opus': 'audio/ogg',
   '.wav': 'audio/wav',
@@ -34,11 +37,19 @@ Future<void> transcribeRecording(
   Duration pollInterval = const Duration(seconds: 2),
 }) async {
   final extracted = library.sidecarFile(recording, Sidecar.audio);
-  if (videoExts.contains(p.extension(recording.path).toLowerCase()) &&
-      !extracted.existsSync()) {
-    if (media == null) throw const JobFailure('video needs audio extraction');
+  final uploadable = _mimeTypes.containsKey(
+    p.extension(recording.path).toLowerCase(),
+  );
+  if (!uploadable && !extracted.existsSync()) {
+    if (media == null) {
+      throw const JobFailure('this file needs audio extraction');
+    }
     job.resetOutput();
-    job.setStatus('Extracting the audio from the video');
+    job.setStatus(
+      videoExts.contains(p.extension(recording.path).toLowerCase())
+          ? 'Extracting the audio from the video'
+          : 'Converting the audio',
+    );
     extracted.parent.createSync(recursive: true);
     final partial = File(p.join(extracted.parent.path, '.audio.tmp.mp3'));
     job.onCancel = media.cancel;
@@ -50,7 +61,7 @@ Future<void> transcribeRecording(
       if (partial.existsSync()) partial.deleteSync();
     }
   }
-  final audio = library.playbackAudio(recording);
+  final audio = library.transcriptionAudio(recording);
   final mimeType = _mimeTypes[p.extension(audio.path).toLowerCase()];
   if (mimeType == null) throw const JobFailure('unsupported audio format');
   final gemini = GeminiClient(apiKey: apiKey, client: job.openClient());

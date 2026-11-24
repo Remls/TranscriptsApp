@@ -15,6 +15,7 @@ import 'library.dart';
 import 'media_tools.dart';
 import 'notes.dart';
 import 'playback.dart';
+import 'playback_source.dart';
 import 'rechunk.dart';
 import 'settings.dart';
 import 'srt.dart';
@@ -103,6 +104,13 @@ class Session extends ChangeNotifier {
   Map<String, String> speakerOverrides = const {};
   String? loadError;
 
+  /// Whether the open recording is being converted so it can play.
+  bool preparing = false;
+
+  /// Whether the open video's picture cannot be shown, so only its sound
+  /// plays.
+  bool pictureUnavailable = false;
+
   /// The latest job per kind and target, kept after it ends so its outcome
   /// can be shown. The target is a recording's or folder's path.
   final _jobs = <(JobKind, String), Job>{};
@@ -124,12 +132,26 @@ class Session extends ChangeNotifier {
     activeIndex.value = -1;
     translationActiveIndex.value = -1;
     loadError = null;
+    preparing = false;
+    pictureUnavailable = false;
     notifyListeners();
     await prefs.setString(_lastAudioKey, r.relPath);
     await prefs.setInt(_lastPositionKey, position.inMilliseconds);
     try {
-      await player.load(
+      final source = await playbackSource(
+        library,
+        media,
         r.file,
+        onConverting: () {
+          preparing = true;
+          notifyListeners();
+        },
+      );
+      if (recording?.relPath != r.relPath) return;
+      preparing = false;
+      pictureUnavailable = source.pictureUnavailable;
+      await player.load(
+        source.file,
         label: (
           id: r.relPath,
           title: r.name,
@@ -143,6 +165,11 @@ class Session extends ChangeNotifier {
       notifyListeners();
     } on PlaybackException catch (e) {
       loadError = e.message;
+      notifyListeners();
+    } on MediaException {
+      if (recording?.relPath != r.relPath) return;
+      preparing = false;
+      loadError = 'This file could not be converted for playback';
       notifyListeners();
     }
   }

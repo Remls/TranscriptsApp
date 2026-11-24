@@ -109,12 +109,28 @@ void createArchive(
   onProgress(1);
 }
 
-/// Every file under [dir], minus the ignored names.
+/// The file names of playback copies inside a sidecar folder.
+final _playbackCopies = {
+  Sidecar.playbackVideo.fileName,
+  Sidecar.playbackSound.fileName,
+};
+
+/// Whether [path] is a playback copy, or one being made, in a sidecar
+/// folder.
+bool _isPlaybackCopy(String path) {
+  final name = p.basename(path);
+  return p.basename(p.dirname(path)).startsWith('.') &&
+      (_playbackCopies.contains(name) || name.startsWith('.partial-'));
+}
+
+/// Every file under [dir], minus the ignored names and playback copies.
 List<String> _filesUnder(Directory dir) {
   if (!dir.existsSync()) return [];
   return [
     for (final f in dir.listSync(recursive: true).whereType<File>())
-      if (!_ignoredNames.contains(p.basename(f.path))) f.path,
+      if (!_ignoredNames.contains(p.basename(f.path)) &&
+          !_isPlaybackCopy(f.path))
+        f.path,
   ];
 }
 

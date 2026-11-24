@@ -655,7 +655,7 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
                         ),
                       ]
                     : [
-                        if (recording.isVideo)
+                        if (recording.isVideo && !_session.pictureUnavailable)
                           IconButton(
                             tooltip: _showVideo ? 'Hide video' : 'Show video',
                             icon: Icon(
@@ -678,6 +678,16 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
             ? _Message(_session.loadError!)
             : Column(
                 children: [
+                  if (_session.preparing)
+                    const _Notice(
+                      'Preparing this file for playback. This happens once.',
+                      busy: true,
+                    ),
+                  if (_session.pictureUnavailable)
+                    const _Notice(
+                      'This video\'s picture can\'t be shown on this phone. '
+                      'Its sound plays as usual.',
+                    ),
                   if (picture != null && _showVideo)
                     VideoPanel(
                       key: ValueKey(recording.relPath),
@@ -904,6 +914,32 @@ class _UnknownLanguageBar extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// A slim bar above the tabs with a line about the open recording.
+class _Notice extends StatelessWidget {
+  const _Notice(this.text, {this.busy = false});
+
+  final String text;
+  final bool busy;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: theme.colorScheme.surfaceContainerHigh,
+      child: Column(
+        crossAxisAlignment: .stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+            child: Text(text, style: theme.textTheme.bodyMedium),
+          ),
+          if (busy) const LinearProgressIndicator(minHeight: 2),
+        ],
       ),
     );
   }
