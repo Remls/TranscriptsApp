@@ -105,8 +105,10 @@ double balancedWidth(
 const fullscreenTransition = Duration(milliseconds: 250);
 
 /// [video] at [t] of the way from [from] to filling the screen, over black
-/// that fades in with it. [drop] moves it down and shrinks it over the
-/// black, for a drag that closes fullscreen.
+/// that fades in with it. A wide video on an upright screen instead zooms
+/// in from the top of [from], before the screen turns sideways. [drop]
+/// moves it down and shrinks it over the black, for a drag that closes
+/// fullscreen.
 class FullscreenFrame extends StatelessWidget {
   const FullscreenFrame({
     super.key,
@@ -129,11 +131,18 @@ class FullscreenFrame extends StatelessWidget {
       builder: (context, constraints) {
         final screen = constraints.biggest;
         final width = min(screen.width, screen.height * aspectRatio);
-        final full = Rect.fromCenter(
-          center: screen.center(Offset.zero),
-          width: width,
-          height: width / aspectRatio,
-        );
+        final full = aspectRatio > 1 && screen.height > screen.width
+            ? Rect.fromLTWH(
+                from.center.dx - from.width * 0.65,
+                from.top,
+                from.width * 1.3,
+                from.height * 1.3,
+              )
+            : Rect.fromCenter(
+                center: screen.center(Offset.zero),
+                width: width,
+                height: width / aspectRatio,
+              );
         final dropped = (drop / screen.height).clamp(0.0, 1.0);
         final scale = 1 - dropped * 0.3;
         final open = Rect.fromCenter(
@@ -770,7 +779,7 @@ class _RoundButton extends StatelessWidget {
 }
 
 /// The lines of one subtitle, each on a dark band, in the direction and size
-/// [language] gives it. Each line is at most about 20 em wide, and lines that
+/// [language] gives it. Each line is at most about 26 em wide, and lines that
 /// wrap are evened out.
 class _SubtitleText extends StatelessWidget {
   const _SubtitleText({
@@ -797,7 +806,7 @@ class _SubtitleText extends StatelessWidget {
       builder: (context, constraints) {
         final maxWidth = min(
           constraints.maxWidth - 16,
-          scaler.scale(fontSize) * 20,
+          scaler.scale(fontSize) * 26,
         );
         return Column(
           mainAxisSize: .min,

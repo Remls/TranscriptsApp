@@ -166,9 +166,14 @@ class _VideoPanelState extends State<VideoPanel>
                   AspectRatio(
                     key: _videoKey,
                     aspectRatio: controller.value.aspectRatio,
-                    child: picture.fullscreen || _preview != null
-                        ? const SizedBox.shrink()
-                        : VideoPlayer(controller),
+                    child: Stack(
+                      fit: .expand,
+                      children: [
+                        VideoPlayer(controller),
+                        if (picture.fullscreen || _preview != null)
+                          const ColoredBox(color: Colors.black),
+                      ],
+                    ),
                   ),
                   Positioned(
                     right: 4,

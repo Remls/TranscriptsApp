@@ -143,6 +143,11 @@ void main() {
       await at(0.5),
       Rect.lerp(from, const Rect.fromLTWH(0, 75, 800, 450), 0.5),
     );
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    expect(await at(1), const Rect.fromLTWH(-60, 100, 520, 292.5));
+    tester.view.reset();
     final dropped = await at(1, drop: 120);
     expect(dropped.center.dy, 300 + 120);
     expect(dropped.width, lessThan(800));
