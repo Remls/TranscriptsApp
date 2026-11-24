@@ -115,4 +115,36 @@ void main() {
     expect(tester.getSize(find.byKey(fill)), const Size(800, 600));
     expect(find.text('a line'), findsOneWidget);
   });
+
+  testWidgets('the frame grows the video from the panel to fill the screen', (
+    tester,
+  ) async {
+    const video = Key('video');
+    const from = Rect.fromLTWH(0, 100, 400, 225);
+    Future<Rect> at(double t, {double drop = 0}) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: .ltr,
+          child: FullscreenFrame(
+            t: t,
+            from: from,
+            drop: drop,
+            aspectRatio: 16 / 9,
+            video: const SizedBox(key: video),
+          ),
+        ),
+      );
+      return tester.getRect(find.byKey(video));
+    }
+
+    expect(await at(0), from);
+    expect(await at(1), const Rect.fromLTWH(0, 75, 800, 450));
+    expect(
+      await at(0.5),
+      Rect.lerp(from, const Rect.fromLTWH(0, 75, 800, 450), 0.5),
+    );
+    final dropped = await at(1, drop: 120);
+    expect(dropped.center.dy, 300 + 120);
+    expect(dropped.width, lessThan(800));
+  });
 }

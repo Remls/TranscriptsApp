@@ -101,8 +101,119 @@ double balancedWidth(
   return width.ceilToDouble();
 }
 
+/// How long fullscreen takes to open or close when not dragged.
+const fullscreenTransition = Duration(milliseconds: 250);
+
+/// [video] at [t] of the way from [from] to filling the screen, over black
+/// that fades in with it. [drop] moves it down and shrinks it over the
+/// black, for a drag that closes fullscreen.
+class FullscreenFrame extends StatelessWidget {
+  const FullscreenFrame({
+    super.key,
+    required this.t,
+    required this.from,
+    required this.aspectRatio,
+    required this.video,
+    this.drop = 0,
+  });
+
+  final double t;
+  final Rect from;
+  final double aspectRatio;
+  final Widget video;
+  final double drop;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final screen = constraints.biggest;
+        final width = min(screen.width, screen.height * aspectRatio);
+        final full = Rect.fromCenter(
+          center: screen.center(Offset.zero),
+          width: width,
+          height: width / aspectRatio,
+        );
+        final dropped = (drop / screen.height).clamp(0.0, 1.0);
+        final scale = 1 - dropped * 0.3;
+        final open = Rect.fromCenter(
+          center: full.center + Offset(0, drop),
+          width: full.width * scale,
+          height: full.height * scale,
+        );
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: ColoredBox(color: Colors.black.withValues(alpha: t)),
+            ),
+            Positioned.fromRect(rect: Rect.lerp(from, open, t)!, child: video),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// The route [FullscreenVideo] opens in. It is see-through, so the video can
+/// grow out of the panel at [from] over the recording screen, and it starts
+/// at [startProgress] to carry on from a drag that opened it.
+class FullscreenRoute extends PageRoute<void> {
+  FullscreenRoute({
+    required this.from,
+    required this.builder,
+    this.startProgress = 0,
+  });
+
+  /// Where the video sits in the panel, in global coordinates.
+  final Rect from;
+  final WidgetBuilder builder;
+  final double startProgress;
+
+  @override
+  bool get opaque => false;
+  @override
+  Color? get barrierColor => null;
+  @override
+  String? get barrierLabel => null;
+  @override
+  bool get maintainState => true;
+  @override
+  Duration get transitionDuration => fullscreenTransition;
+
+  @override
+  AnimationController createAnimationController() =>
+      super.createAnimationController()..value = startProgress;
+
+  @override
+  Widget buildPage(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+  ) => builder(context);
+
+  /// Hands the route's progress to a drag.
+  void startDrag() {
+    navigator!.didStartUserGesture();
+    controller!.stop();
+  }
+
+  double get dragProgress => controller!.value;
+  set dragProgress(double value) => controller!.value = value.clamp(0, 1);
+
+  /// Ends a drag by opening the route fully or closing it.
+  void endDrag({required bool open}) {
+    if (open) {
+      controller!.forward();
+    } else {
+      navigator!.pop();
+    }
+    navigator!.didStopUserGesture();
+  }
+}
+
 /// The video of [picture] filling the screen, with playback controls that
-/// fade out while it plays, and subtitles.
+/// fade out while it plays, and subtitles. Opened in a [FullscreenRoute]; a
+/// drag down closes it.
 class FullscreenVideo extends StatefulWidget {
   const FullscreenVideo({
     super.key,
@@ -124,9 +235,17 @@ class FullscreenVideo extends StatefulWidget {
 }
 
 class _FullscreenVideoState extends State<FullscreenVideo>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   bool _controlsShown = true;
   bool _exiting = false;
+  bool _entered = false;
+  FullscreenRoute? _route;
+
+  /// How far a drag has moved the video down while the screen is landscape.
+  late final _drop = AnimationController.unbounded(vsync: this);
+
+  /// Whether a drag down is moving the route itself, in portrait.
+  bool _routeDrag = false;
   late SubtitleMode _subtitleMode = widget.subtitles;
   Completer<void>? _portrait;
   Timer? _hideTimer;
@@ -145,13 +264,6 @@ class _FullscreenVideoState extends State<FullscreenVideo>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     widget.picture.fullscreen = true;
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    if (widget.picture.controller.value.aspectRatio > 1) {
-      SystemChrome.setPreferredOrientations([
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ]);
-    }
     _playingSub = _session.player.playingStream.listen((playing) {
       if (playing) {
         _scheduleHide();
@@ -163,7 +275,31 @@ class _FullscreenVideoState extends State<FullscreenVideo>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_route != null) return;
+    final route = _route = ModalRoute.of(context)! as FullscreenRoute;
+    route.animation!.addStatusListener(_onRouteStatus);
+    _onRouteStatus(route.animation!.status);
+  }
+
+  /// Once fully open, hides the system bars and turns wide videos sideways.
+  void _onRouteStatus(AnimationStatus status) {
+    if (status != .completed || _entered || _exiting) return;
+    _entered = true;
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    if (widget.picture.controller.value.aspectRatio > 1) {
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+    }
+  }
+
+  @override
   void dispose() {
+    _route?.animation?.removeStatusListener(_onRouteStatus);
+    _drop.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _hideTimer?.cancel();
     skipIntervalTimer?.cancel();
@@ -182,6 +318,7 @@ class _FullscreenVideoState extends State<FullscreenVideo>
 
   @override
   void didChangeMetrics() {
+    if (mounted) setState(() {});
     final portrait = _portrait;
     if (portrait != null && !portrait.isCompleted && _isPortrait) {
       portrait.complete();
@@ -206,6 +343,44 @@ class _FullscreenVideoState extends State<FullscreenVideo>
       await WidgetsBinding.instance.endOfFrame;
     }
     if (mounted) Navigator.pop(context);
+  }
+
+  double get _dragDistance => MediaQuery.sizeOf(context).height * 0.6;
+
+  void _dragStart(DragStartDetails details) {
+    if (_exiting || !_entered) return;
+    _routeDrag = _isPortrait;
+    if (_routeDrag) _route!.startDrag();
+  }
+
+  void _dragUpdate(DragUpdateDetails details) {
+    if (_exiting || !_entered) return;
+    final delta = details.primaryDelta ?? 0;
+    if (_routeDrag) {
+      _route!.dragProgress -= delta / _dragDistance;
+    } else {
+      _drop.value = max(0, _drop.value + delta);
+    }
+  }
+
+  void _dragEnd(DragEndDetails details) {
+    if (_exiting || !_entered) return;
+    final velocity = details.primaryVelocity ?? 0;
+    final progress = _routeDrag
+        ? 1 - _route!.dragProgress
+        : _drop.value / _dragDistance;
+    final close = velocity > 700 || (progress > 0.3 && velocity >= -700);
+    if (_routeDrag) {
+      if (close) {
+        setState(() => _exiting = true);
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      }
+      _route!.endDrag(open: !close);
+    } else if (close) {
+      _exit();
+    } else {
+      _drop.animateTo(0, duration: fullscreenTransition, curve: Curves.easeOut);
+    }
   }
 
   void _scheduleHide() {
@@ -287,35 +462,52 @@ class _FullscreenVideoState extends State<FullscreenVideo>
             : Theme(
                 data: appTheme(scheme),
                 child: Scaffold(
-                  backgroundColor: Colors.black,
+                  backgroundColor: Colors.transparent,
                   body: LayoutBuilder(
-                    builder: (context, constraints) => Stack(
-                      fit: .expand,
-                      children: [
-                        Positioned.fill(
-                          child: GestureDetector(
-                            behavior: .opaque,
-                            onTap: _toggleControls,
-                            onDoubleTapDown: (d) =>
-                                _doubleTapX = d.localPosition.dx,
-                            onDoubleTap: () =>
-                                _doubleTapSkip(constraints.maxWidth),
-                            child: Center(
-                              child: AspectRatio(
-                                aspectRatio:
-                                    widget.picture.controller.value.aspectRatio,
-                                child: VideoPlayer(widget.picture.controller),
+                    builder: (context, constraints) => AnimatedBuilder(
+                      animation: Listenable.merge([_route!.animation, _drop]),
+                      builder: (context, _) {
+                        final t = _route!.animation!.value;
+                        final turning =
+                            _isPortrait &&
+                            widget.picture.controller.value.aspectRatio > 1;
+                        final settled = t >= 1 && _drop.value == 0 && !turning;
+                        return Stack(
+                          fit: .expand,
+                          children: [
+                            Positioned.fill(
+                              child: GestureDetector(
+                                behavior: .opaque,
+                                onTap: _toggleControls,
+                                onDoubleTapDown: (d) =>
+                                    _doubleTapX = d.localPosition.dx,
+                                onDoubleTap: () =>
+                                    _doubleTapSkip(constraints.maxWidth),
+                                onVerticalDragStart: _dragStart,
+                                onVerticalDragUpdate: _dragUpdate,
+                                onVerticalDragEnd: _dragEnd,
+                                child: FullscreenFrame(
+                                  t: t,
+                                  from: _route!.from,
+                                  drop: _drop.value,
+                                  aspectRatio: widget
+                                      .picture
+                                      .controller
+                                      .value
+                                      .aspectRatio,
+                                  video: VideoPlayer(widget.picture.controller),
+                                ),
                               ),
                             ),
-                          ),
-                        ),
-                        if (!_exiting) ...[
-                          _subtitles(),
-                          if (skipIntervalSide != null)
-                            skipIntervalMarker(skipIntervalSide!),
-                          _controls(context),
-                        ],
-                      ],
+                            if (settled && !_exiting) ...[
+                              _subtitles(),
+                              if (skipIntervalSide != null)
+                                skipIntervalMarker(skipIntervalSide!),
+                              _controls(context),
+                            ],
+                          ],
+                        );
+                      },
                     ),
                   ),
                 ),
