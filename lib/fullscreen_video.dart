@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:video_player/video_player.dart';
@@ -152,6 +153,7 @@ class _FullscreenVideoState extends State<FullscreenVideo> {
                 backgroundColor: Colors.black,
                 body: LayoutBuilder(
                   builder: (context, constraints) => Stack(
+                    fit: .expand,
                     children: [
                       Positioned.fill(
                         child: GestureDetector(
@@ -188,32 +190,19 @@ class _FullscreenVideoState extends State<FullscreenVideo> {
         final mode = _session.settings.subtitleMode;
         final translated =
             mode == .translation && _session.translatedCues.isNotEmpty;
-        if (mode == .off) return const SizedBox.shrink();
-        final cues = translated ? _session.translatedCues : _session.cues;
-        final index = translated
-            ? _session.translationActiveIndex
-            : _session.activeIndex;
         final recording = _session.recording;
-        final language = translated || recording == null
-            ? _session.languages.resolve('en')
-            : _session.languages.resolve(recording.lang);
-        return AnimatedPositioned(
-          duration: _fade,
-          left: 24,
-          right: 24,
-          bottom: _controlsShown ? 112 : 24,
-          child: SafeArea(
-            top: false,
-            child: ValueListenableBuilder<int>(
-              valueListenable: index,
-              builder: (context, i, _) => i < 0 || i >= cues.length
-                  ? const SizedBox.shrink()
-                  : _SubtitleText(
-                      lines: subtitleLines(cues[i]),
-                      language: language,
-                    ),
-            ),
-          ),
+        return SubtitleLayer(
+          cues: switch (mode) {
+            .off => const [],
+            _ => translated ? _session.translatedCues : _session.cues,
+          },
+          index: translated
+              ? _session.translationActiveIndex
+              : _session.activeIndex,
+          language: translated || recording == null
+              ? _session.languages.resolve('en')
+              : _session.languages.resolve(recording.lang),
+          raised: _controlsShown,
         );
       },
     );
@@ -359,6 +348,45 @@ class _FullscreenVideoState extends State<FullscreenVideo> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The subtitle for the cue at [index] in [cues], above the bottom edge and
+/// raised while the controls show. Empty [cues] show nothing.
+class SubtitleLayer extends StatelessWidget {
+  const SubtitleLayer({
+    super.key,
+    required this.cues,
+    required this.index,
+    required this.language,
+    required this.raised,
+  });
+
+  final List<Cue> cues;
+  final ValueListenable<int> index;
+  final Language language;
+  final bool raised;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedPositioned(
+      duration: _fade,
+      left: 24,
+      right: 24,
+      bottom: raised ? 112 : 24,
+      child: SafeArea(
+        top: false,
+        child: ValueListenableBuilder<int>(
+          valueListenable: index,
+          builder: (context, i, _) => i < 0 || i >= cues.length
+              ? const SizedBox.shrink()
+              : _SubtitleText(
+                  lines: subtitleLines(cues[i]),
+                  language: language,
+                ),
         ),
       ),
     );
