@@ -11,14 +11,10 @@ import 'library.dart';
 import 'session.dart';
 import 'share_parts.dart';
 
-const _icons = {
-  SharePart.recording: Icons.graphic_eq,
-  SharePart.transcriptSrt: Icons.subtitles_outlined,
-  SharePart.transcriptText: Icons.subject,
-  SharePart.translationSrt: Icons.subtitles_outlined,
-  SharePart.translationText: Icons.translate,
-  SharePart.summary: Icons.summarize_outlined,
-  SharePart.everything: Icons.folder_zip_outlined,
+const _groupIcons = {
+  'Transcript': Icons.subject,
+  'Translation': Icons.translate,
+  'Summary': Icons.summarize_outlined,
 };
 
 const _zipMimeType = 'application/zip';
@@ -79,29 +75,50 @@ Future<void> showShareSheet(
   final part = await showModalBottomSheet<SharePart>(
     context: context,
     showDragHandle: true,
+    isScrollControlled: true,
     builder: (context) => SafeArea(
-      child: Column(
-        mainAxisSize: .min,
-        children: [
-          ListTile(
-            title: Text(
-              'Share ${recording.name}',
-              maxLines: 1,
-              overflow: .ellipsis,
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-          ),
-          for (final part in parts)
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: .min,
+          children: [
             ListTile(
-              leading: Icon(
-                part == SharePart.recording && recording.isVideo
-                    ? Icons.videocam_outlined
-                    : _icons[part],
+              title: Text(
+                'Share ${recording.name}',
+                maxLines: 1,
+                overflow: .ellipsis,
+                style: Theme.of(context).textTheme.titleMedium,
               ),
-              title: Text(part.label),
-              onTap: () => Navigator.pop(context, part),
             ),
-        ],
+            for (final (i, part) in parts.indexed) ...[
+              if (part.group != null &&
+                  (i == 0 || parts[i - 1].group != part.group))
+                ListTile(
+                  dense: true,
+                  leading: Icon(_groupIcons[part.group]),
+                  title: Text(
+                    part.group!,
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ),
+              ListTile(
+                contentPadding: part.group == null
+                    ? null
+                    : const EdgeInsetsDirectional.only(start: 72, end: 24),
+                leading: switch (part) {
+                  SharePart.recording => Icon(
+                    recording.isVideo
+                        ? Icons.videocam_outlined
+                        : Icons.graphic_eq,
+                  ),
+                  SharePart.everything => const Icon(Icons.folder_zip_outlined),
+                  _ => null,
+                },
+                title: Text(part.label),
+                onTap: () => Navigator.pop(context, part),
+              ),
+            ],
+          ],
+        ),
       ),
     ),
   );

@@ -7,16 +7,21 @@ import 'text_jobs.dart';
 
 /// A piece of a recording that can be sent to another app.
 enum SharePart {
-  recording('Recording'),
-  transcriptSrt('Transcript, subtitles (.srt)'),
-  transcriptText('Transcript, text (.txt)'),
-  translationSrt('Translation, subtitles (.srt)'),
-  translationText('Translation, text (.txt)'),
-  summary('Summary'),
-  everything('Everything (.zip)');
+  recording(null, 'Recording'),
+  transcriptSrt('Transcript', 'As subtitle file (.srt)'),
+  transcriptText('Transcript', 'As text file (.txt)'),
+  transcriptPlain('Transcript', 'As plain text'),
+  translationSrt('Translation', 'As subtitle file (.srt)'),
+  translationText('Translation', 'As text file (.txt)'),
+  translationPlain('Translation', 'As plain text'),
+  summaryText('Summary', 'As text file (.txt)'),
+  summaryPlain('Summary', 'As plain text'),
+  everything(null, 'Everything (.zip)');
 
-  const SharePart(this.label);
+  const SharePart(this.group, this.label);
 
+  /// The heading the option sits under, or null for one on its own.
+  final String? group;
   final String label;
 }
 
@@ -56,19 +61,24 @@ List<SharePart> availableShareParts(Library library, File recording) {
     if (has(Sidecar.transcriptSrt)) ...[
       SharePart.transcriptSrt,
       SharePart.transcriptText,
+      SharePart.transcriptPlain,
     ],
     if (has(Sidecar.translation)) ...[
       SharePart.translationSrt,
       SharePart.translationText,
+      SharePart.translationPlain,
     ],
-    if (has(Sidecar.summary)) SharePart.summary,
+    if (has(Sidecar.summary)) ...[
+      SharePart.summaryText,
+      SharePart.summaryPlain,
+    ],
     SharePart.everything,
   ];
 }
 
 /// Prepares [part] of [recording] for sharing. Transcript and translation
 /// files are written into [tempDir], named after the recording. Text files
-/// carry speaker names and manual speaker changes. [SharePart.everything] is
+/// and plain text carry speaker names and manual speaker changes. [SharePart.everything] is
 /// a zip built in the background and is not handled here.
 SharePayload buildSharePayload(
   Library library,
@@ -93,6 +103,8 @@ SharePayload buildSharePayload(
     temp('$name$suffix.txt', '${speakerLines(library, recording, key)}\n'),
     'text/plain',
   );
+  String summary() =>
+      library.sidecarFile(recording, Sidecar.summary).readAsStringSync().trim();
 
   return switch (part) {
     SharePart.recording => SharePayload.file(
@@ -104,9 +116,17 @@ SharePayload buildSharePayload(
     SharePart.transcriptText => text(Sidecar.transcriptSrt, ''),
     SharePart.translationSrt => srt(Sidecar.translation, ' (English)'),
     SharePart.translationText => text(Sidecar.translation, ' (English)'),
-    SharePart.summary => SharePayload.text(
-      library.sidecarFile(recording, Sidecar.summary).readAsStringSync().trim(),
+    SharePart.transcriptPlain => SharePayload.text(
+      speakerLines(library, recording, Sidecar.transcriptSrt)!,
     ),
+    SharePart.translationPlain => SharePayload.text(
+      speakerLines(library, recording, Sidecar.translation)!,
+    ),
+    SharePart.summaryText => SharePayload.file(
+      temp('$name (summary).txt', '${summary()}\n'),
+      'text/plain',
+    ),
+    SharePart.summaryPlain => SharePayload.text(summary()),
     SharePart.everything => throw UnsupportedError(
       'The zip of a recording is built by createRecordingZip',
     ),

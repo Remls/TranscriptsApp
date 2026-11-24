@@ -45,7 +45,9 @@ void main() {
       SharePart.recording,
       SharePart.transcriptSrt,
       SharePart.transcriptText,
-      SharePart.summary,
+      SharePart.transcriptPlain,
+      SharePart.summaryText,
+      SharePart.summaryPlain,
       SharePart.everything,
     ]);
 
@@ -90,12 +92,22 @@ void main() {
 
     final translation = build(SharePart.translationText);
     expect(p.basename(translation.file!.path), 'My talk (English).txt');
+
+    final plain = build(SharePart.transcriptPlain);
+    expect(plain.text, 'Host: one\nHost: two');
+    expect(plain.file, isNull);
+    expect(build(SharePart.translationPlain).text, 'Host: one\nHost: two');
   });
 
   test('the summary is shared as text', () {
     touch('lib/set/.My talk/summary.md', '- a point\n');
-    final payload = build(SharePart.summary);
+    final payload = build(SharePart.summaryPlain);
     expect(payload.text, '- a point');
     expect(payload.file, isNull);
+
+    final file = build(SharePart.summaryText);
+    expect(p.basename(file.file!.path), 'My talk (summary).txt');
+    expect(file.file!.readAsStringSync(), '- a point\n');
+    expect(file.mimeType, 'text/plain');
   });
 }
