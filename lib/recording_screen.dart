@@ -1,39 +1,30 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:path/path.dart' as p;
 
-import 'combine_screen.dart';
-import 'file_drawer.dart';
-import 'folder_screen.dart';
+import 'library_list.dart';
 import 'job.dart';
 import 'job_panel.dart';
 import 'language_editor.dart';
 import 'languages.dart';
 import 'library.dart';
-import 'library_actions.dart' as actions;
 import 'library_search.dart';
-import 'library_search_screen.dart';
 import 'line_actions.dart';
 import 'markdown_view.dart';
 import 'note_editor.dart';
 import 'notes.dart';
 import 'pip.dart';
+import 'recording_actions.dart';
 import 'player_bar.dart';
-import 'rechunk.dart';
 import 'search.dart';
 import 'session.dart';
 import 'settings_screen.dart';
-import 'share_receiver.dart';
-import 'share_sheet.dart';
 import 'srt.dart';
-import 'split_screen.dart';
+import 'swipe_back.dart';
 import 'transcript_view.dart';
 import 'video_panel.dart';
 import 'transcription_job.dart';
-import 'trash_screen.dart';
 
 enum _Tab {
   transcript('Transcript', 'transcript', JobKind.transcribe),
@@ -47,21 +38,34 @@ enum _Tab {
   final JobKind kind;
 }
 
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key, required this.session, required this.pip});
+/// The open recording: its video, its transcript, translation and summary
+/// tabs, and the player.
+class RecordingScreen extends StatefulWidget {
+  const RecordingScreen({
+    super.key,
+    required this.session,
+    required this.pip,
+    required this.onLibraryChanged,
+    this.hit,
+    this.query = '',
+  });
 
   final Session session;
   final PipController pip;
 
+  /// Called when an action here changed the library's files.
+  final VoidCallback onLibraryChanged;
+
+  /// A library search hit to show, with the [query] that found it.
+  final LibraryHit? hit;
+  final String query;
+
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<RecordingScreen> createState() => _RecordingScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen>
-    with WidgetsBindingObserver, RouteAware {
-  late List<LibrarySection> _sections;
+class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
   bool _showVideo = true;
-  final _scaffoldKey = GlobalKey<ScaffoldState>();
 
   /// The picture of the open recording when it is a video.
   VideoFollower? _follower;
@@ -87,23 +91,21 @@ class _HomeScreenState extends State<HomeScreen>
   String _query = '';
   int _matchIndex = 0;
 
-  /// The drawer sections the user has open.
-  final _expandedSections = <String>{};
-
   Session get _session => widget.session;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    _sections = _session.library.scan();
-    _probeDurations();
-    _session.restore();
-    listenForSharedFiles(_importShared);
     _session.addListener(_onSessionChanged);
     _playingSub = _session.player.playingStream.listen((_) => _updatePip());
     widget.pip.onAction = _onPipAction;
     _onSessionChanged();
+    final hit = widget.hit;
+    if (hit != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _openAtHit(hit, widget.query);
+      });
+    }
   }
 
   @override
@@ -127,6 +129,14 @@ class _HomeScreenState extends State<HomeScreen>
 
   void _onSessionChanged() {
     final recording = _session.recording;
+    if (recording == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final route = ModalRoute.of(context);
+        if (mounted && route != null && route.isActive) {
+          Navigator.of(context).removeRoute(route);
+        }
+      });
+    }
     final path = recording != null && recording.isVideo
         ? recording.file.path
         : null;
@@ -311,189 +321,28 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Future<void> _importPicked() async {
-    final picked = await FilePicker.pickFiles();
-    if (!mounted) return;
-    await actions.importSources(context, _session, [
-      for (final f in picked)
-        if (f.path != null) (file: File(f.path!), name: f.name),
-    ]);
-    await FilePicker.clearTemporaryFiles();
-    if (mounted) _rescan();
-  }
-
-  /// Imports files another app shared, then removes their cache copies.
-  Future<void> _importShared(List<File> files, int unreadable) async {
-    if (!mounted) return;
-    if (files.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            unreadable == 1
-                ? 'The shared file could not be read'
-                : 'The shared files could not be read',
-          ),
-          persist: false,
-        ),
-      );
-      return;
-    }
-    await actions.importSources(context, _session, [
-      for (final f in files) (file: f, name: p.basename(f.path)),
-    ]);
-    for (final f in files) {
-      if (f.parent.existsSync()) f.parent.deleteSync(recursive: true);
-    }
-    if (mounted) _rescan();
-  }
-
-  /// Opens the combine screen for [folder] with [preselected] ticked, then
-  /// opens the combined recording.
-  Future<void> _combine(Directory folder, Set<String> preselected) async {
-    final combined = await Navigator.push<File>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => CombineScreen(
-          session: _session,
-          folder: folder,
-          preselected: preselected,
-        ),
-      ),
-    );
-    if (!mounted) return;
-    _rescan();
-    if (combined != null) {
-      await _session.open(_session.library.describe(combined));
-    }
-  }
-
-  /// Opens the split screen for [recording]'s family, then opens the first
-  /// chunk.
-  Future<void> _split(Recording recording) async {
-    final first = await Navigator.push<File>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => SplitScreen(session: _session, recording: recording),
-      ),
-    );
-    if (!mounted) return;
-    _rescan();
-    if (first != null) await _session.open(_session.library.describe(first));
-  }
-
-  void _closeDrawer() {
-    final scaffold = _scaffoldKey.currentState;
-    if (scaffold != null && scaffold.isDrawerOpen) scaffold.closeDrawer();
-  }
-
-  /// Every recording in [section] when they share one format, else none.
-  Set<String> _allIfOneFormat(LibrarySection section) {
-    final formats = {
-      for (final r in section.recordings)
-        p.extension(r.file.path).toLowerCase(),
-    };
-    return formats.length == 1
-        ? {for (final r in section.recordings) r.file.path}
-        : {};
-  }
-
-  Future<void> _onLibraryAction(LibraryAction action) async {
-    switch (action) {
-      case LibraryAction.search:
-        Navigator.pop(context);
-        final picked = await Navigator.push<PickedHit>(
-          context,
-          MaterialPageRoute(
-            builder: (_) => LibrarySearchScreen(
-              rootPath: _session.library.root.path,
-              languageOf: _session.languages.resolve,
-            ),
-          ),
-        );
-        if (picked != null && mounted) {
-          await _openAtHit(picked.hit, picked.query);
-        }
-      case LibraryAction.import:
-        Navigator.pop(context);
-        await _importPicked();
-      case LibraryAction.newFolder:
-        await actions.createFolder(context, _session);
-      case LibraryAction.trash:
-        Navigator.pop(context);
-        await Navigator.push(
-          context,
-          MaterialPageRoute<void>(
-            builder: (_) => TrashScreen(library: _session.library),
-          ),
-        );
-      case LibraryAction.settings:
-        Navigator.pop(context);
-        _openSettings();
-    }
-    if (mounted) _rescan();
-  }
-
-  Future<void> _onFolderAction(
-    LibrarySection section,
-    FolderAction action,
-  ) async {
-    final folder = section.folder!;
-    switch (action) {
-      case FolderAction.summary:
-        Navigator.pop(context);
-        await Navigator.push(
-          context,
-          MaterialPageRoute<void>(
-            builder: (_) => FolderScreen(
-              session: _session,
-              folder: folder,
-              onOpenSettings: _openSettings,
-            ),
-          ),
-        );
-      case FolderAction.combine:
-        Navigator.pop(context);
-        await _combine(folder, _allIfOneFormat(section));
-      case FolderAction.shareZip:
-        Navigator.pop(context);
-        await shareFolderZip(context, _session, folder);
-      case FolderAction.rename:
-        await actions.renameFolder(context, _session, folder);
-      case FolderAction.trash:
-        await actions.trashFolder(context, _session, folder, _rescan);
-    }
-    if (mounted) _rescan();
-  }
-
   Future<void> _onRecordingAction(
     Recording recording,
     RecordingAction action,
   ) async {
-    switch (action) {
-      case RecordingAction.share:
-        await showShareSheet(context, _session, recording);
-      case RecordingAction.split:
-        _closeDrawer();
-        await _split(recording);
-      case RecordingAction.combine:
-        _closeDrawer();
-        await _combine(recording.file.parent, {
-          for (final f in familyMembers(recording.file)) f.path,
-        });
-      case RecordingAction.rename:
-        await actions.renameRecording(context, _session, recording);
-      case RecordingAction.move:
-        await actions.moveRecording(context, _session, recording);
-      case RecordingAction.trash:
-        await actions.trashRecording(context, _session, recording, _rescan);
+    final produced = await runRecordingAction(
+      context,
+      _session,
+      recording,
+      action,
+      widget.onLibraryChanged,
+    );
+    widget.onLibraryChanged();
+    if (produced != null) {
+      await _session.open(_session.library.describe(produced));
     }
-    if (mounted) _rescan();
+    _refresh();
   }
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
     pipRouteObserver.unsubscribe(this);
+    widget.pip.update(active: false);
     _session.removeListener(_onSessionChanged);
     _playingSub?.cancel();
     widget.pip.onAction = null;
@@ -503,20 +352,8 @@ class _HomeScreenState extends State<HomeScreen>
     super.dispose();
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed) _session.persistPosition();
-  }
-
-  void _rescan() {
-    setState(() => _sections = _session.library.scan());
-    _probeDurations();
-  }
-
-  void _probeDurations() {
-    _session.durations.probe([
-      for (final section in _sections) ...section.recordings,
-    ]);
+  void _refresh() {
+    if (mounted) setState(() {});
   }
 
   void _openSettings() {
@@ -525,9 +362,7 @@ class _HomeScreenState extends State<HomeScreen>
       MaterialPageRoute<void>(
         builder: (_) => SettingsScreen(session: _session),
       ),
-    ).then((_) {
-      if (mounted) _rescan();
-    });
+    ).then((_) => _refresh());
   }
 
   /// English recordings need no translation tab.
@@ -571,7 +406,7 @@ class _HomeScreenState extends State<HomeScreen>
       if (job.state == JobState.running) return;
       job.removeListener(onChange);
       if (!mounted) return;
-      _rescan();
+      _refresh();
       if (job.state == JobState.failed && hadContent) {
         messenger.showSnackBar(
           SnackBar(content: Text('${tab.label} failed: ${job.error}')),
@@ -658,35 +493,7 @@ class _HomeScreenState extends State<HomeScreen>
         if (widget.pip.inPip && follower != null && follower.isInitialized) {
           return PipVideo(follower: follower);
         }
-        final drawer = FileDrawer(
-          sections: _sections,
-          selected: recording?.relPath,
-          expanded: _expandedSections,
-          durationOf: _session.durations.of,
-          isBusy: (r) => _session.recordingBusy(r.relPath),
-          onSelect: (r) {
-            Navigator.pop(context);
-            _session.open(r);
-          },
-          onLibraryAction: _onLibraryAction,
-          onFolderAction: _onFolderAction,
-          onRecordingAction: _onRecordingAction,
-        );
-        void onDrawerChanged(bool open) {
-          if (open) _rescan();
-        }
-
-        if (recording == null) {
-          return Scaffold(
-            key: _scaffoldKey,
-            appBar: AppBar(title: const Text('Transcripts')),
-            drawer: drawer,
-            onDrawerChanged: onDrawerChanged,
-            body: _Message(
-              _sections.isEmpty ? 'No recordings yet' : 'Select a recording',
-            ),
-          );
-        }
+        if (recording == null) return const Scaffold();
         final tabs = _tabsFor(recording);
         final tabKey = '${recording.relPath}:${tabs.length}';
         return DefaultTabController(
@@ -696,7 +503,7 @@ class _HomeScreenState extends State<HomeScreen>
           child: Builder(
             builder: (tabContext) {
               _rememberTabs(DefaultTabController.of(tabContext), tabKey);
-              return _scaffold(recording, tabs, drawer, onDrawerChanged);
+              return _scaffold(recording, tabs);
             },
           ),
         );
@@ -704,12 +511,7 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _scaffold(
-    Recording recording,
-    List<_Tab> tabs,
-    Widget drawer,
-    ValueChanged<bool> onDrawerChanged,
-  ) {
+  Widget _scaffold(Recording recording, List<_Tab> tabs) {
     final follower = _follower;
     final shown = tabs[_tabIndex.clamp(0, tabs.length - 1)];
     final matchCount = _matchesOn(recording, shown).length;
@@ -720,7 +522,6 @@ class _HomeScreenState extends State<HomeScreen>
         if (!didPop) _closeSearch();
       },
       child: Scaffold(
-        key: _scaffoldKey,
         appBar: AppBar(
           leading: _searching
               ? IconButton(
@@ -790,8 +591,6 @@ class _HomeScreenState extends State<HomeScreen>
                 ],
           bottom: TabBar(tabs: [for (final t in tabs) Tab(text: t.label)]),
         ),
-        drawer: drawer,
-        onDrawerChanged: onDrawerChanged,
         body: _session.loadError != null
             ? _Message(_session.loadError!)
             : Column(
@@ -804,8 +603,13 @@ class _HomeScreenState extends State<HomeScreen>
                       pip: widget.pip,
                     ),
                   Expanded(
-                    child: TabBarView(
-                      children: [for (final t in tabs) _tabBody(recording, t)],
+                    child: SwipeBack(
+                      onSwipeBack: () => Navigator.maybePop(context),
+                      child: TabBarView(
+                        children: [
+                          for (final t in tabs) _tabBody(recording, t),
+                        ],
+                      ),
                     ),
                   ),
                 ],

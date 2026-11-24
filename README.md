@@ -3,7 +3,7 @@
 An Android app that transcribes recordings with Gemini, then translates and summarizes them with Gemini or Claude. It handles speech that mixes languages, such as Dhivehi, Japanese or Korean with English.
 
 <p>
-  <img src="docs/screenshots/drawer.png" width="200" alt="Library drawer with folders and recordings">
+  <img src="docs/screenshots/library.png" width="200" alt="Library with folders, recordings and the mini player">
   <img src="docs/screenshots/transcript.png" width="200" alt="Right-to-left transcript with speakers and a note">
   <img src="docs/screenshots/translation.png" width="200" alt="English translation of the same recording">
   <img src="docs/screenshots/summary.png" width="200" alt="Summary of the recording">

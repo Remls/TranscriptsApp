@@ -7,7 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'home_screen.dart';
+import 'library_screen.dart';
 import 'job_keeper.dart';
 import 'library.dart';
 import 'media_tools.dart';
@@ -65,7 +65,7 @@ class TranscriptsApp extends StatelessWidget {
             ),
             themeMode: session.settings.themeMode,
             navigatorObservers: [pipRouteObserver],
-            home: HomeScreen(session: session, pip: pip),
+            home: LibraryScreen(session: session, pip: pip),
           );
         },
       ),

@@ -48,6 +48,7 @@ Flutter 3.50, Dart 3.14.
 
 State is plain `ChangeNotifier` objects.
 
+- `LibraryScreen` (`library_screen.dart`) is the first screen: the folders and recordings, imports, shared files, library search and the mini player. It pushes `RecordingScreen` (`recording_screen.dart`) for the open recording.
 - `Session` (`session.dart`) owns the open recording, its cues, the single `AudioPlayer`, and the running jobs.
 - `Settings` wraps `SharedPreferences` and the Keystore-backed secrets.
 - `Library` (`library.dart`) is the on-disk layout. Sidecar paths go through `sidecarDir()` and `sidecarFile()`. Do not build them by hand.
@@ -83,7 +84,7 @@ Folders are one level deep. `lang` absent means `dv`.
 ## Traps
 
 - `dart format` reflows code. Read the current text before an exact-string edit.
-- Closing the open recording rebuilds the home screen. Flows that close it use the `State`'s context, not a menu's.
+- Closing the open recording removes the recording screen. Flows that close it use a context that outlives that screen.
 - `AlertDialog` content with an infinite-width child renders blank. Wrap it in `SizedBox(width: double.maxFinite)`.
 - Closures passed to `Isolate.run` must be created in top-level functions.
 - `just_audio_background` supports one player, and every source needs a `MediaItem` tag.

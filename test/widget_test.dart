@@ -2,7 +2,9 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:transcripts/file_drawer.dart';
+import 'package:transcripts/library_list.dart';
+import 'package:transcripts/library_screen.dart';
+import 'package:transcripts/mini_player.dart';
 import 'package:transcripts/library.dart';
 import 'package:transcripts/markdown_view.dart';
 import 'package:transcripts/notes.dart';
@@ -23,14 +25,14 @@ Recording _recording(String relPath, {bool hasTranscript = false}) {
 }
 
 void main() {
-  testWidgets('drawer expands the open recording folder and reports taps', (
+  testWidgets('the library opens the open recording folder and reports taps', (
     tester,
   ) async {
     Recording? tapped;
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: FileDrawer(
+          body: LibraryList(
             sections: [
               LibrarySection('first', [_recording('first/alpha.mp3')]),
               LibrarySection('second', [
@@ -43,7 +45,6 @@ void main() {
             durationOf: (_) => 75,
             isBusy: (r) => r.relPath == 'second/gamma.mp4',
             onSelect: (r) => tapped = r,
-            onLibraryAction: (_) {},
             onFolderAction: (_, _) {},
             onRecordingAction: (_, _) {},
           ),
@@ -56,32 +57,53 @@ void main() {
     expect(find.text('beta'), findsOneWidget);
     expect(find.text('1:15'), findsNWidgets(2));
     expect(find.byType(CircularProgressIndicator), findsNWidgets(2));
-    expect(find.text('Trash'), findsOneWidget);
-    expect(find.text('Settings'), findsOneWidget);
 
     await tester.tap(find.text('gamma'));
     expect(tapped?.relPath, 'second/gamma.mp4');
   });
 
-  testWidgets('drawer shows an empty state', (tester) async {
+  testWidgets('an empty library offers to import', (tester) async {
+    var imported = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: EmptyLibrary(onImport: () => imported = true)),
+      ),
+    );
+    expect(find.text('No recordings yet'), findsOneWidget);
+    await tester.tap(find.text('Import files'));
+    expect(imported, isTrue);
+  });
+
+  testWidgets('the mini player names the recording and opens it on tap', (
+    tester,
+  ) async {
+    var opened = false;
+    var played = false;
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: FileDrawer(
-            sections: const [],
-            selected: null,
-            expanded: {},
-            durationOf: (_) => 75,
-            isBusy: (r) => r.relPath == 'second/gamma.mp4',
-            onSelect: (_) {},
-            onLibraryAction: (_) {},
-            onFolderAction: (_, _) {},
-            onRecordingAction: (_, _) {},
+          bottomNavigationBar: MiniPlayer(
+            recording: _recording('talks/intro.mp3'),
+            playing: Stream.value(false),
+            progress: Stream.value(0.25),
+            onPlay: () => played = true,
+            onPause: () {},
+            onOpen: () => opened = true,
           ),
         ),
       ),
     );
-    expect(find.text('No recordings yet'), findsOneWidget);
+    expect(find.text('intro'), findsOneWidget);
+    expect(find.text('talks'), findsOneWidget);
+    await tester.pump();
+    final bar = tester.widget<LinearProgressIndicator>(
+      find.byType(LinearProgressIndicator),
+    );
+    expect(bar.value, 0.25);
+    await tester.tap(find.byTooltip('Play'));
+    expect(played, isTrue);
+    await tester.tap(find.text('intro'));
+    expect(opened, isTrue);
   });
 
   testWidgets('transcript applies names and overrides, and seeks on tap', (

@@ -23,8 +23,10 @@ const recordingActionGroups = [
   ],
 ];
 
-class FileDrawer extends StatefulWidget {
-  const FileDrawer({
+/// The library's folders as expandable sections, each listing its
+/// recordings.
+class LibraryList extends StatefulWidget {
+  const LibraryList({
     super.key,
     required this.sections,
     required this.selected,
@@ -32,7 +34,6 @@ class FileDrawer extends StatefulWidget {
     required this.durationOf,
     required this.isBusy,
     required this.onSelect,
-    required this.onLibraryAction,
     required this.onFolderAction,
     required this.onRecordingAction,
   });
@@ -42,8 +43,8 @@ class FileDrawer extends StatefulWidget {
   /// The open recording's path relative to the library root.
   final String? selected;
 
-  /// The titles of the sections shown open. The drawer updates it as the
-  /// user opens and closes sections.
+  /// The titles of the sections shown open. The list updates it as the user
+  /// opens and closes sections.
   final Set<String> expanded;
 
   /// A recording's length in seconds, when known.
@@ -52,17 +53,16 @@ class FileDrawer extends StatefulWidget {
   /// Whether a job is running on a recording.
   final bool Function(Recording recording) isBusy;
   final ValueChanged<Recording> onSelect;
-  final ValueChanged<LibraryAction> onLibraryAction;
   final void Function(LibrarySection section, FolderAction action)
   onFolderAction;
   final void Function(Recording recording, RecordingAction action)
   onRecordingAction;
 
   @override
-  State<FileDrawer> createState() => _FileDrawerState();
+  State<LibraryList> createState() => _LibraryListState();
 }
 
-class _FileDrawerState extends State<FileDrawer> {
+class _LibraryListState extends State<LibraryList> {
   @override
   void initState() {
     super.initState();
@@ -79,101 +79,29 @@ class _FileDrawerState extends State<FileDrawer> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Drawer(
-      child: SafeArea(
-        child: Column(
-          crossAxisAlignment: .stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 4, 4),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Recordings',
-                      style: theme.textTheme.titleLarge,
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: 'Search all recordings',
-                    icon: const Icon(Icons.search),
-                    onPressed: () =>
-                        widget.onLibraryAction(LibraryAction.search),
-                  ),
-                  PopupMenuButton<LibraryAction>(
-                    tooltip: 'Add',
-                    icon: const Icon(Icons.add),
-                    onSelected: widget.onLibraryAction,
-                    itemBuilder: (context) => const [
-                      PopupMenuItem(
-                        value: LibraryAction.import,
-                        child: Text('Import files'),
-                      ),
-                      PopupMenuItem(
-                        value: LibraryAction.newFolder,
-                        child: Text('New folder'),
-                      ),
-                    ],
-                  ),
-                ],
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 88),
+      children: [
+        for (final section in widget.sections) ...[
+          _FolderRow(
+            section: section,
+            open: widget.expanded.contains(section.title),
+            busy: section.recordings.any(widget.isBusy),
+            onToggle: () => _toggle(section.title),
+            onAction: (action) => widget.onFolderAction(section, action),
+          ),
+          if (widget.expanded.contains(section.title))
+            for (final r in section.recordings)
+              _RecordingRow(
+                recording: r,
+                duration: widget.durationOf(r),
+                busy: widget.isBusy(r),
+                selected: r.relPath == widget.selected,
+                onTap: () => widget.onSelect(r),
+                onLongPress: () => _showRecordingActions(context, r),
               ),
-            ),
-            const Divider(height: 1),
-            Expanded(
-              child: widget.sections.isEmpty
-                  ? const Center(child: Text('No recordings yet'))
-                  : ListView(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      children: [
-                        for (final section in widget.sections) ...[
-                          _FolderRow(
-                            section: section,
-                            open: widget.expanded.contains(section.title),
-                            busy: section.recordings.any(widget.isBusy),
-                            onToggle: () => _toggle(section.title),
-                            onAction: (action) =>
-                                widget.onFolderAction(section, action),
-                          ),
-                          if (widget.expanded.contains(section.title))
-                            for (final r in section.recordings)
-                              _RecordingRow(
-                                recording: r,
-                                duration: widget.durationOf(r),
-                                busy: widget.isBusy(r),
-                                selected: r.relPath == widget.selected,
-                                onTap: () => widget.onSelect(r),
-                                onLongPress: () =>
-                                    _showRecordingActions(context, r),
-                              ),
-                        ],
-                      ],
-                    ),
-            ),
-            const Divider(height: 1),
-            Row(
-              children: [
-                Expanded(
-                  child: TextButton.icon(
-                    onPressed: () =>
-                        widget.onLibraryAction(LibraryAction.trash),
-                    icon: const Icon(Icons.delete_outlined, size: 18),
-                    label: const Text('Trash'),
-                  ),
-                ),
-                Expanded(
-                  child: TextButton.icon(
-                    onPressed: () =>
-                        widget.onLibraryAction(LibraryAction.settings),
-                    icon: const Icon(Icons.settings_outlined, size: 18),
-                    label: const Text('Settings'),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
+        ],
+      ],
     );
   }
 
