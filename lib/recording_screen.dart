@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:material_ui/material_ui.dart';
 
@@ -15,6 +14,7 @@ import 'markdown_view.dart';
 import 'note_editor.dart';
 import 'notes.dart';
 import 'pip.dart';
+import 'playback.dart';
 import 'recording_actions.dart';
 import 'player_bar.dart';
 import 'search.dart';
@@ -68,8 +68,10 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
   bool _showVideo = true;
 
   /// The picture of the open recording when it is a video.
-  VideoFollower? _follower;
-  String? _followerPath;
+  VideoPicture? _picture;
+
+  /// The open recording's path, to notice when another one opens.
+  String? _openPath;
 
   /// Whether this screen is in front of every other route.
   bool _inFront = true;
@@ -140,18 +142,18 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
         }
       });
     }
-    final path = recording != null && recording.isVideo
-        ? recording.file.path
-        : null;
-    if (path != _followerPath) {
-      _follower
+    final video = _session.player.video;
+    if (!identical(video, _picture?.controller)) {
+      _picture
         ?..removeListener(_updatePip)
         ..dispose();
-      _follower = path == null
+      _picture = video == null
           ? null
-          : (VideoFollower(_session.player, File(path))
-              ..addListener(_updatePip));
-      _followerPath = path;
+          : (VideoPicture(video)..addListener(_updatePip));
+    }
+    final path = recording?.relPath;
+    if (path != _openPath) {
+      _openPath = path;
       _matchIndex = 0;
       _selection = null;
     }
@@ -160,16 +162,16 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
 
   /// Tells the system whether leaving the app shrinks the video.
   void _updatePip() {
-    final follower = _follower;
-    final ready = follower != null && follower.isInitialized;
-    final size = ready ? follower.controller.value.size : Size.zero;
+    final picture = _picture;
+    final ready = picture != null && picture.isInitialized;
+    final size = ready ? picture.controller.value.size : Size.zero;
     widget.pip.update(
       active: pipAllowed(
-        isVideo: follower != null,
+        isVideo: picture != null,
         showVideo: _showVideo,
         playing: _session.player.playing,
         videoReady: ready,
-        inFront: _inFront || (follower?.fullscreen ?? false),
+        inFront: _inFront || (picture?.fullscreen ?? false),
       ),
       playing: _session.player.playing,
       width: size.width.round(),
@@ -181,9 +183,9 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
     final player = _session.player;
     switch (action) {
       case .back:
-        _session.seekBy(const Duration(seconds: -10));
+        _session.seekBy(-skipInterval);
       case .forward:
-        _session.seekBy(const Duration(seconds: 10));
+        _session.seekBy(skipInterval);
       case .play:
         player.play();
       case .pause:
@@ -417,7 +419,7 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
     _session.removeListener(_onSessionChanged);
     _playingSub?.cancel();
     widget.pip.onAction = null;
-    _follower?.dispose();
+    _picture?.dispose();
     _searchDebounce?.cancel();
     _searchField.dispose();
     super.dispose();
@@ -560,9 +562,9 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
       ]),
       builder: (context, _) {
         final recording = _session.recording;
-        final follower = _follower;
-        if (widget.pip.inPip && follower != null && follower.isInitialized) {
-          return PipVideo(follower: follower);
+        final picture = _picture;
+        if (widget.pip.inPip && picture != null && picture.isInitialized) {
+          return PipVideo(picture: picture);
         }
         if (recording == null) return const Scaffold();
         final tabs = _tabsFor(recording);
@@ -583,7 +585,7 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
   }
 
   Widget _scaffold(Recording recording, List<_Tab> tabs) {
-    final follower = _follower;
+    final picture = _picture;
     final shown = tabs[_tabIndex.clamp(0, tabs.length - 1)];
     final matchCount = _matchesOn(recording, shown).length;
     final current = matchCount == 0 ? 0 : _matchIndex.clamp(0, matchCount - 1);
@@ -676,11 +678,11 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
             ? _Message(_session.loadError!)
             : Column(
                 children: [
-                  if (follower != null && _showVideo)
+                  if (picture != null && _showVideo)
                     VideoPanel(
                       key: ValueKey(recording.relPath),
                       session: _session,
-                      follower: follower,
+                      picture: picture,
                       pip: widget.pip,
                     ),
                   Expanded(

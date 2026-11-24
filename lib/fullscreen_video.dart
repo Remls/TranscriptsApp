@@ -7,6 +7,7 @@ import 'package:video_player/video_player.dart';
 
 import 'languages.dart';
 import 'pip.dart';
+import 'playback.dart';
 import 'player_bar.dart';
 import 'session.dart';
 import 'settings.dart';
@@ -14,7 +15,6 @@ import 'srt.dart';
 import 'theme.dart';
 import 'video_panel.dart';
 
-const _skip = Duration(seconds: 10);
 const _hideAfter = Duration(seconds: 3);
 const _fade = Duration(milliseconds: 200);
 
@@ -44,17 +44,17 @@ String _subtitleLabel(SubtitleMode mode) => switch (mode) {
   .translation => 'Translation',
 };
 
-/// The video of [follower] filling the screen, with playback controls that
+/// The video of [picture] filling the screen, with playback controls that
 /// fade out while it plays, and subtitles.
 class FullscreenVideo extends StatefulWidget {
   const FullscreenVideo({
     super.key,
-    required this.follower,
+    required this.picture,
     required this.session,
     required this.pip,
   });
 
-  final VideoFollower follower;
+  final VideoPicture picture;
   final Session session;
   final PipController pip;
 
@@ -69,8 +69,8 @@ class _FullscreenVideoState extends State<FullscreenVideo> {
 
   /// The side of the last double-tap skip while its marker shows: -1 for
   /// back, 1 for forward.
-  int? _skipSide;
-  Timer? _skipTimer;
+  int? skipIntervalSide;
+  Timer? skipIntervalTimer;
   double _doubleTapX = 0;
 
   Session get _session => widget.session;
@@ -78,9 +78,9 @@ class _FullscreenVideoState extends State<FullscreenVideo> {
   @override
   void initState() {
     super.initState();
-    widget.follower.fullscreen = true;
+    widget.picture.fullscreen = true;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    if (widget.follower.controller.value.aspectRatio > 1) {
+    if (widget.picture.controller.value.aspectRatio > 1) {
       SystemChrome.setPreferredOrientations([
         DeviceOrientation.landscapeLeft,
         DeviceOrientation.landscapeRight,
@@ -99,9 +99,9 @@ class _FullscreenVideoState extends State<FullscreenVideo> {
   @override
   void dispose() {
     _hideTimer?.cancel();
-    _skipTimer?.cancel();
+    skipIntervalTimer?.cancel();
     _playingSub?.cancel();
-    widget.follower.fullscreen = false;
+    widget.picture.fullscreen = false;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations(const []);
     super.dispose();
@@ -122,11 +122,11 @@ class _FullscreenVideoState extends State<FullscreenVideo> {
 
   void _doubleTapSkip(double width) {
     final side = _doubleTapX < width / 2 ? -1 : 1;
-    _session.seekBy(_skip * side);
-    _skipTimer?.cancel();
-    setState(() => _skipSide = side);
-    _skipTimer = Timer(const Duration(milliseconds: 600), () {
-      if (mounted) setState(() => _skipSide = null);
+    _session.seekBy(skipInterval * side);
+    skipIntervalTimer?.cancel();
+    setState(() => skipIntervalSide = side);
+    skipIntervalTimer = Timer(const Duration(milliseconds: 600), () {
+      if (mounted) setState(() => skipIntervalSide = null);
     });
   }
 
@@ -146,7 +146,7 @@ class _FullscreenVideoState extends State<FullscreenVideo> {
     return ListenableBuilder(
       listenable: widget.pip,
       builder: (context, _) => widget.pip.inPip
-          ? PipVideo(follower: widget.follower)
+          ? PipVideo(picture: widget.picture)
           : Theme(
               data: appTheme(scheme),
               child: Scaffold(
@@ -166,14 +166,15 @@ class _FullscreenVideoState extends State<FullscreenVideo> {
                           child: Center(
                             child: AspectRatio(
                               aspectRatio:
-                                  widget.follower.controller.value.aspectRatio,
-                              child: VideoPlayer(widget.follower.controller),
+                                  widget.picture.controller.value.aspectRatio,
+                              child: VideoPlayer(widget.picture.controller),
                             ),
                           ),
                         ),
                       ),
                       _subtitles(),
-                      if (_skipSide != null) _skipMarker(_skipSide!),
+                      if (skipIntervalSide != null)
+                        skipIntervalMarker(skipIntervalSide!),
                       _controls(context),
                     ],
                   ),
@@ -208,7 +209,7 @@ class _FullscreenVideoState extends State<FullscreenVideo> {
     );
   }
 
-  Widget _skipMarker(int side) {
+  Widget skipIntervalMarker(int side) {
     return Align(
       alignment: side < 0 ? const Alignment(-0.6, 0) : const Alignment(0.6, 0),
       child: IgnorePointer(
@@ -279,7 +280,7 @@ class _FullscreenVideoState extends State<FullscreenVideo> {
                         icon: Icons.replay_10,
                         size: 56,
                         tooltip: 'Back 10 seconds',
-                        onPressed: () => _session.seekBy(-_skip),
+                        onPressed: () => _session.seekBy(-skipInterval),
                       ),
                       const SizedBox(width: 40),
                       StreamBuilder<bool>(
@@ -299,7 +300,7 @@ class _FullscreenVideoState extends State<FullscreenVideo> {
                         icon: Icons.forward_10,
                         size: 56,
                         tooltip: 'Forward 10 seconds',
-                        onPressed: () => _session.seekBy(_skip),
+                        onPressed: () => _session.seekBy(skipInterval),
                       ),
                     ],
                   ),

@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:dynamic_color/dynamic_color.dart';
-import 'package:just_audio_background/just_audio_background.dart';
+import 'package:audio_service/audio_service.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -10,25 +10,45 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'library_screen.dart';
 import 'job_keeper.dart';
 import 'library.dart';
+import 'media_session.dart';
 import 'media_tools.dart';
 import 'pip.dart';
+import 'playback.dart';
 import 'session.dart';
 import 'settings.dart';
 import 'theme.dart';
+import 'video_playback.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await JustAudioBackground.init(
-    androidNotificationChannelId: 'io.remls.transcripts.playback',
-    androidNotificationChannelName: 'Playback',
-    androidNotificationOngoing: true,
-    androidNotificationIcon: 'drawable/ic_stat_lines',
+  final handler = await AudioService.init(
+    builder: PlaybackHandler.new,
+    config: const AudioServiceConfig(
+      androidNotificationChannelId: 'io.remls.transcripts.playback',
+      androidNotificationChannelName: 'Playback',
+      androidNotificationOngoing: true,
+      androidNotificationIcon: 'drawable/ic_stat_lines',
+      fastForwardInterval: skipInterval,
+      rewindInterval: skipInterval,
+    ),
   );
   final base = await getApplicationDocumentsDirectory();
   final library = Library(Directory(p.join(base.path, 'audios')));
   final prefs = await SharedPreferences.getInstance();
   final settings = await Settings.load(prefs, const KeystoreSecretStore());
-  final session = Session(library, prefs, settings, FfmpegMediaTools());
+  final session = Session(
+    library,
+    prefs,
+    settings,
+    FfmpegMediaTools(),
+    player: MediaSessionPlayback(
+      audioPlayback: JustAudioPlayback(),
+      videoPlayback: VideoPlayback(),
+      handler: handler,
+      isVideo: (file) =>
+          videoExts.contains(p.extension(file.path).toLowerCase()),
+    ),
+  );
   JobKeeper(
     const AndroidBackgroundKeeper(),
     isOnScreen: () =>

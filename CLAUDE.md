@@ -49,7 +49,8 @@ Flutter 3.50, Dart 3.14.
 State is plain `ChangeNotifier` objects.
 
 - `LibraryScreen` (`library_screen.dart`) is the first screen: the folders and recordings, imports, shared files, library search and the mini player. It pushes `RecordingScreen` (`recording_screen.dart`) for the open recording.
-- `Session` (`session.dart`) owns the open recording, its cues, the single `AudioPlayer`, and the running jobs.
+- `Session` (`session.dart`) owns the open recording, its cues, its `Playback`, and the running jobs.
+- `Playback` (`playback.dart`) is the player interface. `MediaSessionPlayback` (`media_session.dart`) plays audio files with `JustAudioPlayback` and videos, picture and sound together, with `VideoPlayback` (`video_playback.dart`), and shows them in the system media session through `PlaybackHandler` (`audio_service`).
 - `Settings` wraps `SharedPreferences` and the Keystore-backed secrets.
 - `Library` (`library.dart`) is the on-disk layout. Sidecar paths go through `sidecarDir()` and `sidecarFile()`. Do not build them by hand.
 - `LanguageList` (`languages.dart`) is the user's language list, stored in `<library>/.languages.json`. Direction, font size and prompt notes come from it. Do not hardcode language checks elsewhere.
@@ -87,7 +88,6 @@ Folders are one level deep. `lang` absent means `dv`.
 - Closing the open recording removes the recording screen. Flows that close it use a context that outlives that screen.
 - `AlertDialog` content with an infinite-width child renders blank. Wrap it in `SizedBox(width: double.maxFinite)`.
 - Closures passed to `Isolate.run` must be created in top-level functions.
-- `just_audio_background` supports one player, and every source needs a `MediaItem` tag.
 - Nothing may declare `android.permission.CAMERA`, or the system camera intent stops working. After adding a package, run `aapt2 dump permissions` on the APK.
 - Release builds shrink resources. A drawable that code looks up by name must be listed in `android/app/src/main/res/raw/keep.xml`, or the lookup fails only in release builds.
 - `assets/fonts/Faruma.ttf` is a Thaana-only subset, so Latin text does not render in it.

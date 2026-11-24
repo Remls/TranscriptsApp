@@ -3,8 +3,6 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:just_audio/just_audio.dart';
-import 'package:just_audio_background/just_audio_background.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -16,6 +14,7 @@ import 'languages.dart';
 import 'library.dart';
 import 'media_tools.dart';
 import 'notes.dart';
+import 'playback.dart';
 import 'rechunk.dart';
 import 'settings.dart';
 import 'srt.dart';
@@ -48,14 +47,20 @@ JobKind folderJobKind(FolderSummaryMode mode) {
 
 /// The open recording, its transcript and its player, plus the running jobs.
 class Session extends ChangeNotifier {
-  Session(this.library, this.prefs, this.settings, this.media) {
-    _positionSub = player.positionStream.listen(_onPosition);
-    _stateSub = player.playerStateStream.listen((s) {
-      if (s.processingState == ProcessingState.completed) {
-        player.pause();
-        player.seek(Duration.zero);
-      }
-      if (!s.playing) persistPosition();
+  Session(
+    this.library,
+    this.prefs,
+    this.settings,
+    this.media, {
+    Playback? player,
+  }) : player = player ?? JustAudioPlayback() {
+    _positionSub = this.player.positionStream.listen(_onPosition);
+    _completedSub = this.player.completed.listen((_) {
+      this.player.pause();
+      this.player.seek(Duration.zero);
+    });
+    _playingSub = this.player.playingStream.listen((playing) {
+      if (!playing) persistPosition();
     });
   }
 
@@ -85,7 +90,7 @@ class Session extends ChangeNotifier {
     },
   );
   late final durations = DurationCache(prefs, media);
-  final player = AudioPlayer();
+  final Playback player;
   final activeIndex = ValueNotifier<int>(-1);
   final translationActiveIndex = ValueNotifier<int>(-1);
 
@@ -107,7 +112,8 @@ class Session extends ChangeNotifier {
   void Function(JobKind kind, String target, Job job)? onJobFinished;
 
   late final StreamSubscription<Duration> _positionSub;
-  late final StreamSubscription<PlayerState> _stateSub;
+  late final StreamSubscription<void> _completedSub;
+  late final StreamSubscription<bool> _playingSub;
   DateTime _lastPersist = DateTime.fromMillisecondsSinceEpoch(0);
 
   double get speed => prefs.getDouble(_speedKey) ?? 1.0;
@@ -122,22 +128,21 @@ class Session extends ChangeNotifier {
     await prefs.setString(_lastAudioKey, r.relPath);
     await prefs.setInt(_lastPositionKey, position.inMilliseconds);
     try {
-      await player.setAudioSource(
-        AudioSource.file(
-          library.playbackAudio(r.file).path,
-          tag: MediaItem(
-            id: r.relPath,
-            title: r.name,
-            album: r.file.parent.path == library.root.path
-                ? null
-                : p.basename(r.file.parent.path),
-          ),
+      await player.load(
+        r.file,
+        label: (
+          id: r.relPath,
+          title: r.name,
+          album: r.file.parent.path == library.root.path
+              ? null
+              : p.basename(r.file.parent.path),
         ),
-        initialPosition: position,
+        position: position,
       );
       await player.setSpeed(speed);
-    } on PlayerException catch (e) {
-      loadError = e.message ?? 'This file could not be played';
+      notifyListeners();
+    } on PlaybackException catch (e) {
+      loadError = e.message;
       notifyListeners();
     }
   }
@@ -425,7 +430,8 @@ class Session extends ChangeNotifier {
   @override
   void dispose() {
     _positionSub.cancel();
-    _stateSub.cancel();
+    _completedSub.cancel();
+    _playingSub.cancel();
     player.dispose();
     activeIndex.dispose();
     translationActiveIndex.dispose();

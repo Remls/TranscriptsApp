@@ -1,6 +1,6 @@
-import 'package:just_audio/just_audio.dart';
 import 'package:material_ui/material_ui.dart';
 
+import 'playback.dart';
 import 'session.dart';
 import 'srt.dart';
 
@@ -19,7 +19,7 @@ class PlayerBar extends StatelessWidget {
   /// Adds a note at the current position.
   final VoidCallback onAddNote;
 
-  AudioPlayer get _player => session.player;
+  Playback get _player => session.player;
 
   @override
   Widget build(BuildContext context) {
@@ -41,14 +41,13 @@ class PlayerBar extends StatelessWidget {
                   IconButton(
                     tooltip: 'Back 10 seconds',
                     icon: const Icon(Icons.replay_10),
-                    onPressed: () =>
-                        session.seekBy(const Duration(seconds: -10)),
+                    onPressed: () => session.seekBy(-skipInterval),
                   ),
                   const SizedBox(width: 8),
-                  StreamBuilder<PlayerState>(
-                    stream: _player.playerStateStream,
+                  StreamBuilder<bool>(
+                    stream: _player.playingStream,
                     builder: (context, snap) {
-                      final playing = snap.data?.playing ?? false;
+                      final playing = snap.data ?? _player.playing;
                       return IconButton.filled(
                         iconSize: 32,
                         tooltip: playing ? 'Pause' : 'Play',
@@ -61,8 +60,7 @@ class PlayerBar extends StatelessWidget {
                   IconButton(
                     tooltip: 'Forward 10 seconds',
                     icon: const Icon(Icons.forward_10),
-                    onPressed: () =>
-                        session.seekBy(const Duration(seconds: 10)),
+                    onPressed: () => session.seekBy(skipInterval),
                   ),
                   const Spacer(),
                   SizedBox(
@@ -90,7 +88,7 @@ class PlayerBar extends StatelessWidget {
 class PositionBar extends StatefulWidget {
   const PositionBar({super.key, required this.player});
 
-  final AudioPlayer player;
+  final Playback player;
 
   @override
   State<PositionBar> createState() => _PositionBarState();
@@ -100,7 +98,7 @@ class _PositionBarState extends State<PositionBar> {
   /// The slider value in seconds while the thumb is being dragged.
   double? _dragValue;
 
-  AudioPlayer get _player => widget.player;
+  Playback get _player => widget.player;
 
   @override
   Widget build(BuildContext context) {
