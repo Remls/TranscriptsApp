@@ -31,11 +31,46 @@ void main() {
       CueItem('2', '  second speaker '),
       CueItem(null, ' '),
     ]);
-    expect(subtitleLines(cue), ['first speaker', 'second speaker']);
+    expect(subtitleLines(cue), ['– first speaker', '– second speaker']);
+  });
+
+  test('lines from more than one speaker start with a dash', () {
+    final mixed = Cue(0, 4, const [
+      CueItem('1', 'first'),
+      CueItem('2', 'second'),
+    ]);
+    expect(subtitleLines(mixed), ['– first', '– second']);
+    expect(subtitleLines(mixed, speakerOf: (item) => '1'), ['first', 'second']);
+    final one = Cue(0, 4, const [CueItem('1', 'a'), CueItem('1', 'b')]);
+    expect(subtitleLines(one), ['a', 'b']);
+    expect(subtitleLines(one, speakerOf: (item) => item == 1 ? '3' : null), [
+      '– a',
+      '– b',
+    ]);
+  });
+
+  testWidgets('wrapped lines are evened out', (tester) async {
+    const style = TextStyle(fontSize: 10);
+    const span = TextSpan(text: 'aaaa bbbb cccc dddd eeee f', style: style);
+    double width(double max) => balancedWidth(
+      span,
+      max,
+      textScaler: TextScaler.noScaling,
+      textDirection: .ltr,
+    );
+    expect(width(1000), 1000);
+    final even = width(220);
+    expect(even, lessThan(220));
+    final painter = TextPainter(text: span, textDirection: .ltr)
+      ..layout(maxWidth: even);
+    final lines = painter.computeLineMetrics();
+    expect(lines, hasLength(2));
+    expect((lines[0].width - lines[1].width).abs(), lessThan(60));
+    painter.dispose();
   });
 
   test('subtitle lines take readings where they match', () {
-    final cue = Cue(0, 4, const [CueItem('1', '東京に行く'), CueItem('2', '今日は雨')]);
+    final cue = Cue(0, 4, const [CueItem('1', '東京に行く'), CueItem('1', '今日は雨')]);
     final readings = Cue(0, 4, const [
       CueItem('1', ' ｜東京《とうきょう》に行く'),
       CueItem('2', '昨日《きのう》は雨'),

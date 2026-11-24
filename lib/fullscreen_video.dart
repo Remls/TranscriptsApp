@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -36,17 +37,68 @@ SubtitleMode firstSubtitles(
 }
 
 /// The text lines of [cue], without speaker labels, taken from [readings]
-/// where it has the same line with readings added.
-List<String> subtitleLines(Cue cue, {Cue? readings}) {
+/// where it has the same line with readings added. When the lines come from
+/// more than one speaker, each starts with a dash. [speakerOf] gives the
+/// speaker of each line by its index.
+List<String> subtitleLines(
+  Cue cue, {
+  Cue? readings,
+  String? Function(int item)? speakerOf,
+}) {
   final marked = readings?.items.length == cue.items.length
       ? readings!.items
       : null;
-  return [
+  final shown = [
     for (final (i, item) in cue.items.indexed)
-      if (item.text.trim().isNotEmpty)
-        withReadings(item.text.trim(), marked?[i].text.trim()) ??
-            item.text.trim(),
+      if (item.text.trim().isNotEmpty) i,
   ];
+  final speakers = {
+    for (final i in shown) speakerOf?.call(i) ?? cue.items[i].speaker,
+  };
+  final dash = speakers.length > 1 ? '– ' : '';
+  return [
+    for (final i in shown)
+      dash +
+          (withReadings(cue.items[i].text.trim(), marked?[i].text.trim()) ??
+              cue.items[i].text.trim()),
+  ];
+}
+
+/// The narrowest width up to [maxWidth] that lays [span] out in as few
+/// lines as [maxWidth] does, so that its lines come out about even.
+/// [placeholders] are the sizes of its widgets, in order.
+double balancedWidth(
+  InlineSpan span,
+  double maxWidth, {
+  required TextScaler textScaler,
+  required TextDirection textDirection,
+  List<PlaceholderDimensions> placeholders = const [],
+}) {
+  final painter = TextPainter(
+    text: span,
+    textDirection: textDirection,
+    textScaler: textScaler,
+  )..setPlaceholderDimensions(placeholders);
+  int lines(double width) {
+    painter.layout(maxWidth: width);
+    return painter.computeLineMetrics().length;
+  }
+
+  final target = lines(maxWidth);
+  var width = maxWidth;
+  if (target > 1) {
+    var low = 0.0;
+    while (width - low > 1) {
+      final middle = (low + width) / 2;
+      if (lines(middle) > target) {
+        low = middle;
+      } else {
+        width = middle;
+      }
+    }
+  }
+  painter.dispose();
+  return width.ceilToDouble();
 }
 
 /// The video of [picture] filling the screen, with playback controls that
@@ -298,6 +350,8 @@ class _FullscreenVideoState extends State<FullscreenVideo>
               ? _session.languages.resolve('en')
               : _session.languages.resolve(recording.lang),
           raised: _controlsShown,
+          aspectRatio: widget.picture.controller.value.aspectRatio,
+          speakerOverrides: translated ? const {} : _session.speakerOverrides,
         );
       },
     );
@@ -445,6 +499,8 @@ class SubtitleLayer extends StatelessWidget {
     required this.language,
     required this.raised,
     this.readings,
+    this.aspectRatio = 16 / 9,
+    this.speakerOverrides = const {},
   });
 
   final List<Cue> cues;
@@ -455,8 +511,16 @@ class SubtitleLayer extends StatelessWidget {
   final Language language;
   final bool raised;
 
+  /// The video's width over its height, for sizing the text to the picture.
+  final double aspectRatio;
+
+  /// Speaker ids keyed by "cueIndex:itemIndex", replacing the SRT's own label.
+  final Map<String, String> speakerOverrides;
+
   @override
   Widget build(BuildContext context) {
+    final screen = MediaQuery.sizeOf(context);
+    final videoHeight = min(screen.height, screen.width / aspectRatio);
     return AnimatedPositioned(
       duration: _fade,
       left: 24,
@@ -472,8 +536,10 @@ class SubtitleLayer extends StatelessWidget {
                   lines: subtitleLines(
                     cues[i],
                     readings: i < (readings?.length ?? 0) ? readings![i] : null,
+                    speakerOf: (item) => speakerOverrides['$i:$item'],
                   ),
                   language: language,
+                  fontSize: (videoHeight * 0.045).clamp(14, 30),
                 ),
         ),
       ),
@@ -512,52 +578,97 @@ class _RoundButton extends StatelessWidget {
 }
 
 /// The lines of one subtitle, each on a dark band, in the direction and size
-/// [language] gives it.
+/// [language] gives it. Each line is at most about 20 em wide, and lines that
+/// wrap are evened out.
 class _SubtitleText extends StatelessWidget {
-  const _SubtitleText({required this.lines, required this.language});
+  const _SubtitleText({
+    required this.lines,
+    required this.language,
+    required this.fontSize,
+  });
 
   final List<String> lines;
   final Language language;
+  final double fontSize;
 
   @override
   Widget build(BuildContext context) {
     final style = Theme.of(context).textTheme.titleMedium!.copyWith(
       color: Colors.white,
-      height: 1.4,
-      shadows: const [Shadow(blurRadius: 4)],
+      fontSize: fontSize,
+      fontWeight: .w500,
+      height: 1.35,
     );
     final rubyStyle = style.copyWith(height: rubyLineHeight);
-    return Column(
-      mainAxisSize: .min,
-      children: [
-        for (final line in lines)
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(4),
+    final scaler = TextScaler.linear(language.textScale);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxWidth = min(
+          constraints.maxWidth - 16,
+          scaler.scale(fontSize) * 20,
+        );
+        return Column(
+          mainAxisSize: .min,
+          children: [
+            for (final line in lines)
+              _line(line, style, rubyStyle, scaler, maxWidth),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _line(
+    String line,
+    TextStyle style,
+    TextStyle rubyStyle,
+    TextScaler scaler,
+    double maxWidth,
+  ) {
+    final ruby = hasRuby(line);
+    final span = ruby
+        ? rubySpan(line, rubyStyle, (text, _) => [TextSpan(text: text)])
+        : TextSpan(text: line, style: style);
+    final direction = lineIsRtl(line, rtl: language.rtl)
+        ? TextDirection.rtl
+        : TextDirection.ltr;
+    final width = balancedWidth(
+      span,
+      maxWidth,
+      textScaler: scaler,
+      textDirection: direction,
+      placeholders: [
+        if (ruby)
+          for (final segment in parseRuby(line))
+            if (segment.reading != null)
+              rubyWordDimensions(
+                segment.base,
+                segment.reading!,
+                rubyStyle,
+                scale: scaler.scale(fontSize) / fontSize,
               ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                child: Text.rich(
-                  hasRuby(line)
-                      ? rubySpan(
-                          line,
-                          rubyStyle,
-                          (text, _) => [TextSpan(text: text)],
-                        )
-                      : TextSpan(text: line, style: style),
-                  textAlign: .center,
-                  textDirection: lineIsRtl(line, rtl: language.rtl)
-                      ? .rtl
-                      : .ltr,
-                  textScaler: TextScaler.linear(language.textScale),
-                ),
-              ),
+      ],
+    );
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.75),
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: width),
+            child: Text.rich(
+              span,
+              textAlign: .center,
+              textDirection: direction,
+              textScaler: scaler,
             ),
           ),
-      ],
+        ),
+      ),
     );
   }
 }

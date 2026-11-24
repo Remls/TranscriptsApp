@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:material_ui/material_ui.dart';
 
 import 'ruby.dart';
@@ -37,6 +39,47 @@ TextSpan rubySpan(
   return TextSpan(style: style, children: spans);
 }
 
+TextPainter _readingPainter(String reading, TextStyle style) => TextPainter(
+  text: TextSpan(
+    text: reading,
+    style: style.copyWith(
+      fontSize: (style.fontSize ?? 14) * 0.5,
+      height: 1,
+      backgroundColor: Colors.transparent,
+    ),
+  ),
+  textDirection: .ltr,
+  textScaler: .noScaling,
+)..layout();
+
+/// The box a [RubyWord] of [base] and [reading] in [style] takes, scaled by
+/// [scale].
+PlaceholderDimensions rubyWordDimensions(
+  String base,
+  String reading,
+  TextStyle style, {
+  double scale = 1,
+}) {
+  final readingPainter = _readingPainter(reading, style);
+  final basePainter = TextPainter(
+    text: TextSpan(text: base, style: style),
+    textDirection: .ltr,
+    textScaler: .noScaling,
+  )..layout();
+  final dimensions = PlaceholderDimensions(
+    size:
+        Size(max(basePainter.width, readingPainter.width), basePainter.height) *
+        scale,
+    alignment: .baseline,
+    baseline: .alphabetic,
+    baselineOffset:
+        basePainter.computeDistanceToActualBaseline(.alphabetic) * scale,
+  );
+  readingPainter.dispose();
+  basePainter.dispose();
+  return dimensions;
+}
+
 /// [base] with [reading] drawn above it in small type.
 class RubyWord extends StatelessWidget {
   const RubyWord({
@@ -53,18 +96,7 @@ class RubyWord extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fontSize = style.fontSize ?? 14;
-    final readingPainter = TextPainter(
-      text: TextSpan(
-        text: reading,
-        style: style.copyWith(
-          fontSize: fontSize * 0.5,
-          height: 1,
-          backgroundColor: Colors.transparent,
-        ),
-      ),
-      textDirection: .ltr,
-      textScaler: .noScaling,
-    )..layout();
+    final readingPainter = _readingPainter(reading, style);
     final basePainter = TextPainter(
       text: base,
       textDirection: .ltr,
