@@ -7,6 +7,8 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 import 'languages.dart';
 import 'notes.dart';
+import 'ruby.dart';
+import 'ruby_text.dart';
 import 'search.dart';
 import 'srt.dart';
 
@@ -45,9 +47,13 @@ class TranscriptView extends StatefulWidget {
     this.search,
     this.selected,
     this.onLineTap,
+    this.readings,
   });
 
   final List<Cue> cues;
+
+  /// [cues] with readings above their kanji, shown in their place when set.
+  final List<Cue>? readings;
 
   /// The user's notes, shown between the cues at their times.
   final List<Note> notes;
@@ -187,6 +193,20 @@ class _TranscriptViewState extends State<TranscriptView> {
     }
   }
 
+  /// The lines of cue [i] with readings, or null where a line has none or
+  /// no longer matches the transcript.
+  List<String?>? _readingsOf(int i) {
+    final readings = widget.readings;
+    if (readings == null || i >= readings.length) return null;
+    final items = widget.cues[i].items;
+    final marked = readings[i].items;
+    if (marked.length != items.length) return null;
+    return [
+      for (final (j, item) in items.indexed)
+        withReadings(item.text, marked[j].text),
+    ];
+  }
+
   void _jumpToCurrent() {
     setState(() => _userScrolled = false);
     final index = _activeRow;
@@ -243,6 +263,7 @@ class _TranscriptViewState extends State<TranscriptView> {
                     final i = entry as int;
                     return _CueTile(
                       cue: widget.cues[i],
+                      readings: _readingsOf(i),
                       index: i,
                       active: i == active,
                       highlights: highlights[row] ?? const [],
@@ -307,25 +328,33 @@ TextSpan _highlighted(
   String text,
   List<_Highlight> highlights,
   TextStyle? style,
-) {
-  if (highlights.isEmpty) return TextSpan(text: text, style: style);
-  final spans = <TextSpan>[];
+) => highlights.isEmpty
+    ? TextSpan(text: text, style: style)
+    : TextSpan(style: style, children: _marked(text, 0, highlights));
+
+/// Spans for [text], which starts at [offset] in its line, with the parts of
+/// [highlights] that fall within it marked.
+List<InlineSpan> _marked(String text, int offset, List<_Highlight> highlights) {
+  final spans = <InlineSpan>[];
   var at = 0;
   for (final h in highlights) {
-    if (h.start > at) spans.add(TextSpan(text: text.substring(at, h.start)));
+    final start = (h.start - offset).clamp(0, text.length);
+    final end = (h.end - offset).clamp(0, text.length);
+    if (end <= start || start < at) continue;
+    if (start > at) spans.add(TextSpan(text: text.substring(at, start)));
     spans.add(
       TextSpan(
-        text: text.substring(h.start, h.end),
+        text: text.substring(start, end),
         style: TextStyle(
           backgroundColor: h.current ? currentMatchColor : matchColor,
           color: h.current ? Colors.black : null,
         ),
       ),
     );
-    at = h.end;
+    at = end;
   }
   if (at < text.length) spans.add(TextSpan(text: text.substring(at)));
-  return TextSpan(style: style, children: spans);
+  return spans;
 }
 
 /// A note between cues. It reads left to right whatever the transcript's
@@ -422,6 +451,7 @@ class _NoteTile extends StatelessWidget {
 class _CueTile extends StatelessWidget {
   const _CueTile({
     required this.cue,
+    required this.readings,
     required this.index,
     required this.active,
     required this.highlights,
@@ -435,6 +465,9 @@ class _CueTile extends StatelessWidget {
   });
 
   final Cue cue;
+
+  /// Each line's text with readings, or null for a line shown plain.
+  final List<String?>? readings;
   final int index;
   final bool active;
   final List<_Highlight> highlights;
@@ -488,6 +521,20 @@ class _CueTile extends StatelessWidget {
     );
   }
 
+  TextSpan _lineSpan(ThemeData theme, int i, CueItem item) {
+    final ruby = readings?[i];
+    final style = theme.textTheme.bodyLarge!.copyWith(
+      height: ruby == null ? 1.6 : rubyLineHeight,
+      color: active ? theme.colorScheme.onSecondaryContainer : null,
+    );
+    final mine = [
+      for (final h in highlights)
+        if (h.item == i) h,
+    ];
+    if (ruby == null) return _highlighted(item.text, mine, style);
+    return rubySpan(ruby, style, (text, offset) => _marked(text, offset, mine));
+  }
+
   Widget _row(ThemeData theme, int i, CueItem item, bool viewRtl) {
     final scheme = theme.colorScheme;
     final lineRtl = lineIsRtl(item.text, rtl: viewRtl);
@@ -528,17 +575,7 @@ class _CueTile extends StatelessWidget {
         const SizedBox(width: 8),
         Expanded(
           child: Text.rich(
-            _highlighted(
-              item.text,
-              [
-                for (final h in highlights)
-                  if (h.item == i) h,
-              ],
-              theme.textTheme.bodyLarge?.copyWith(
-                height: 1.6,
-                color: active ? scheme.onSecondaryContainer : null,
-              ),
-            ),
+            _lineSpan(theme, i, item),
             textDirection: lineRtl ? .rtl : .ltr,
             textAlign: viewRtl ? .right : .left,
             textScaler: TextScaler.linear(textScale),

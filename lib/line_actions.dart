@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import 'languages.dart';
 import 'library.dart';
 import 'note_editor.dart';
+import 'ruby.dart';
 import 'session.dart';
 import 'transcript_edits.dart';
 import 'transcript_view.dart';
@@ -252,6 +253,12 @@ Future<void> _editText(
 ) async {
   final lang = source == Sidecar.translation ? 'en' : session.recording!.lang;
   final rtl = session.languages.resolve(lang).rtl;
+  final readings = session.furiganaCues;
+  final hasReadings =
+      source == Sidecar.transcriptSrt &&
+      cue < readings.length &&
+      item < readings[cue].items.length &&
+      withReadings(current, readings[cue].items[item].text) != null;
   final controller = TextEditingController(text: current);
   final text = await showDialog<String>(
     context: context,
@@ -263,6 +270,12 @@ Future<void> _editText(
         minLines: 1,
         maxLines: 8,
         textDirection: rtl ? .rtl : .ltr,
+        decoration: InputDecoration(
+          helperText: hasReadings
+              ? "Saving removes this line's furigana."
+              : null,
+          helperMaxLines: 2,
+        ),
       ),
       actions: [
         TextButton(

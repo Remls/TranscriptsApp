@@ -9,6 +9,7 @@ import 'languages.dart';
 import 'library.dart';
 import 'media_tools.dart';
 import 'prompts.dart';
+import 'ruby.dart';
 import 'srt.dart';
 
 /// The audio formats Gemini takes as they are. Other files have their audio
@@ -94,9 +95,16 @@ Future<void> transcribeRecording(
       job.appendOutput(chunk);
     }
 
-    final srt = cleanModelSrt(job.output.toString());
+    final withReadings = cleanModelSrt(job.output.toString());
+    final srt = stripRuby(withReadings);
     if (srt.isEmpty) throw const JobFailure('empty response from Gemini');
     library.sidecarDir(recording).createSync(recursive: true);
+    final furigana = library.sidecarFile(recording, Sidecar.furigana);
+    if (hasRuby(withReadings)) {
+      furigana.writeAsStringSync('$withReadings\n');
+    } else if (furigana.existsSync()) {
+      furigana.deleteSync();
+    }
     library
         .sidecarFile(recording, Sidecar.transcriptSrt)
         .writeAsStringSync('$srt\n');

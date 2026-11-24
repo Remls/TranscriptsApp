@@ -41,6 +41,7 @@ const _themePref = 'theme';
 const _transcribeLangPref = 'transcribeLang';
 const _subtitlesPref = 'subtitles';
 const _wallpaperColorsPref = 'wallpaperColors';
+const _readingsPref = 'readings';
 
 /// What fullscreen video shows as subtitles.
 enum SubtitleMode { off, transcript, translation }
@@ -100,6 +101,9 @@ class Settings extends ChangeNotifier {
   /// Whether the theme takes its colors from the system wallpaper.
   bool get wallpaperColors => _prefs.getBool(_wallpaperColorsPref) ?? true;
 
+  /// Whether transcripts show readings above kanji when they have them.
+  bool get readings => _prefs.getBool(_readingsPref) ?? true;
+
   SubtitleMode get subtitleMode {
     final name = _prefs.getString(_subtitlesPref);
     return SubtitleMode.values.firstWhere(
@@ -132,6 +136,11 @@ class Settings extends ChangeNotifier {
 
   Future<void> setWallpaperColors(bool value) async {
     await _prefs.setBool(_wallpaperColorsPref, value);
+    notifyListeners();
+  }
+
+  Future<void> setReadings(bool value) async {
+    await _prefs.setBool(_readingsPref, value);
     notifyListeners();
   }
 

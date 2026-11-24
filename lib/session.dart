@@ -98,6 +98,9 @@ class Session extends ChangeNotifier {
   Recording? recording;
   List<Cue> cues = const [];
   List<Cue> translatedCues = const [];
+
+  /// The transcript with readings above its kanji, or empty when it has none.
+  List<Cue> furiganaCues = const [];
   String? summary;
   List<Note> notes = const [];
   Map<String, String> speakerNames = const {};
@@ -178,6 +181,7 @@ class Session extends ChangeNotifier {
     final file = recording!.file;
     cues = _readCues(file, Sidecar.transcriptSrt);
     translatedCues = _readCues(file, Sidecar.translation);
+    furiganaCues = _readCues(file, Sidecar.furigana);
     final summaryFile = library.sidecarFile(file, Sidecar.summary);
     summary = summaryFile.existsSync() ? summaryFile.readAsStringSync() : null;
     speakerNames = library.readStringMap(file, Sidecar.speakers);
@@ -197,6 +201,7 @@ class Session extends ChangeNotifier {
     recording = null;
     cues = const [];
     translatedCues = const [];
+    furiganaCues = const [];
     summary = null;
     notes = const [];
     loadError = null;

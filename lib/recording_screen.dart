@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:material_ui/material_ui.dart';
 
+import 'furigana_icon.dart';
 import 'library_list.dart';
 import 'job.dart';
 import 'job_panel.dart';
@@ -17,6 +18,7 @@ import 'pip.dart';
 import 'playback.dart';
 import 'recording_actions.dart';
 import 'player_bar.dart';
+import 'ruby.dart';
 import 'search.dart';
 import 'session.dart';
 import 'settings_screen.dart';
@@ -532,20 +534,27 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
       _Tab.translation => _session.translatedCues,
       _Tab.summary => null,
     }?.fold(0, (sum, cue) => sum + cue.items.length);
+    final furigana = _session.settings.readings;
     return ActionStrip(
       info: lines == null ? null : '$lines ${lines == 1 ? 'line' : 'lines'}',
       hint: lines == null ? null : 'Long-press a line to edit',
       actions: [
-        if (tab == _Tab.transcript)
-          TextButton.icon(
-            onPressed: () => showSpeakersSheet(context, _session),
-            icon: const Icon(Icons.people_outline, size: 18),
-            label: const Text('Speakers'),
+        if (tab == _Tab.transcript && _session.furiganaCues.isNotEmpty)
+          IconButton(
+            tooltip: furigana ? 'Hide furigana' : 'Show furigana',
+            onPressed: () => _session.settings.setReadings(!furigana),
+            icon: FuriganaIcon(off: !furigana),
           ),
-        TextButton.icon(
+        if (tab == _Tab.transcript)
+          IconButton(
+            tooltip: 'Speakers',
+            onPressed: () => showSpeakersSheet(context, _session),
+            icon: const Icon(Icons.people_outline),
+          ),
+        IconButton(
+          tooltip: 'Regenerate',
           onPressed: () => _regenerate(recording, tab),
-          icon: const Icon(Icons.refresh, size: 18),
-          label: const Text('Regenerate'),
+          icon: const Icon(Icons.refresh),
         ),
       ],
     );
@@ -730,6 +739,7 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
             outputRtl: job is TranscriptionJob
                 ? job.language.rtl
                 : language.rtl,
+            showOutput: stripRuby,
             options: LanguageRow(
               label: 'Language',
               languages: _session.languages,
@@ -818,6 +828,9 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
       key: ValueKey('${recording.relPath}:transcript'),
       search: _highlightOn(recording, _Tab.transcript),
       cues: _session.cues,
+      readings: _session.settings.readings && _session.furiganaCues.isNotEmpty
+          ? _session.furiganaCues
+          : null,
       notes: _session.notes,
       noteImage: _session.noteImageOf,
       onPictureTap: (picture) => showPicture(context, picture),

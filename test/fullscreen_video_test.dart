@@ -25,6 +25,19 @@ void main() {
     expect(subtitleLines(cue), ['first speaker', 'second speaker']);
   });
 
+  test('subtitle lines take readings where they match', () {
+    final cue = Cue(0, 4, const [CueItem('1', '東京に行く'), CueItem('2', '今日は雨')]);
+    final readings = Cue(0, 4, const [
+      CueItem('1', ' ｜東京《とうきょう》に行く'),
+      CueItem('2', '昨日《きのう》は雨'),
+    ]);
+    expect(subtitleLines(cue, readings: readings), ['｜東京《とうきょう》に行く', '今日は雨']);
+    expect(subtitleLines(cue, readings: Cue(0, 4, const [CueItem('1', 'x')])), [
+      '東京に行く',
+      '今日は雨',
+    ]);
+  });
+
   testWidgets('the subtitle layer leaves the screen its full size', (
     tester,
   ) async {

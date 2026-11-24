@@ -14,6 +14,8 @@ import 'settings.dart';
 import 'srt.dart';
 import 'theme.dart';
 import 'video_panel.dart';
+import 'ruby.dart';
+import 'ruby_text.dart';
 
 const _hideAfter = Duration(seconds: 3);
 const _fade = Duration(milliseconds: 200);
@@ -32,11 +34,19 @@ SubtitleMode nextSubtitleMode(
   return next == .translation && !hasTranslation ? .off : next;
 }
 
-/// The text lines of [cue], without speaker labels.
-List<String> subtitleLines(Cue cue) => [
-  for (final item in cue.items)
-    if (item.text.trim().isNotEmpty) item.text.trim(),
-];
+/// The text lines of [cue], without speaker labels, taken from [readings]
+/// where it has the same line with readings added.
+List<String> subtitleLines(Cue cue, {Cue? readings}) {
+  final marked = readings?.items.length == cue.items.length
+      ? readings!.items
+      : null;
+  return [
+    for (final (i, item) in cue.items.indexed)
+      if (item.text.trim().isNotEmpty)
+        withReadings(item.text.trim(), marked?[i].text.trim()) ??
+            item.text.trim(),
+  ];
+}
 
 String _subtitleLabel(SubtitleMode mode) => switch (mode) {
   .off => 'Off',
@@ -197,6 +207,12 @@ class _FullscreenVideoState extends State<FullscreenVideo> {
             .off => const [],
             _ => translated ? _session.translatedCues : _session.cues,
           },
+          readings:
+              mode == .transcript &&
+                  _session.settings.readings &&
+                  _session.furiganaCues.isNotEmpty
+              ? _session.furiganaCues
+              : null,
           index: translated
               ? _session.translationActiveIndex
               : _session.activeIndex,
@@ -364,9 +380,13 @@ class SubtitleLayer extends StatelessWidget {
     required this.index,
     required this.language,
     required this.raised,
+    this.readings,
   });
 
   final List<Cue> cues;
+
+  /// [cues] with readings above their kanji, shown where they match.
+  final List<Cue>? readings;
   final ValueListenable<int> index;
   final Language language;
   final bool raised;
@@ -385,7 +405,10 @@ class SubtitleLayer extends StatelessWidget {
           builder: (context, i, _) => i < 0 || i >= cues.length
               ? const SizedBox.shrink()
               : _SubtitleText(
-                  lines: subtitleLines(cues[i]),
+                  lines: subtitleLines(
+                    cues[i],
+                    readings: i < (readings?.length ?? 0) ? readings![i] : null,
+                  ),
                   language: language,
                 ),
         ),
@@ -434,11 +457,12 @@ class _SubtitleText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final style = Theme.of(context).textTheme.titleMedium?.copyWith(
+    final style = Theme.of(context).textTheme.titleMedium!.copyWith(
       color: Colors.white,
       height: 1.4,
       shadows: const [Shadow(blurRadius: 4)],
     );
+    final rubyStyle = style.copyWith(height: rubyLineHeight);
     return Column(
       mainAxisSize: .min,
       children: [
@@ -452,14 +476,19 @@ class _SubtitleText extends StatelessWidget {
               ),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                child: Text(
-                  line,
+                child: Text.rich(
+                  hasRuby(line)
+                      ? rubySpan(
+                          line,
+                          rubyStyle,
+                          (text, _) => [TextSpan(text: text)],
+                        )
+                      : TextSpan(text: line, style: style),
                   textAlign: .center,
                   textDirection: lineIsRtl(line, rtl: language.rtl)
                       ? .rtl
                       : .ltr,
                   textScaler: TextScaler.linear(language.textScale),
-                  style: style,
                 ),
               ),
             ),

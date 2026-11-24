@@ -114,6 +114,41 @@ void main() {
     expect(calls.last, 'DELETE /v1beta/files/abc');
   });
 
+  test(
+    'readings go to their own file and the transcript stays plain',
+    () async {
+      final j = job(
+        (req) => _sse(
+          '1\n00:00:01,000 --> 00:00:03,000\nSpeaker 1: ｜東京《とうきょう》に行く\n',
+        ),
+      );
+      await j.run();
+      await pumpEventQueue();
+
+      expect(j.state, JobState.done);
+      expect(
+        sidecar(Sidecar.transcriptSrt),
+        '1\n00:00:01,000 --> 00:00:03,000\nSpeaker 1: 東京に行く\n',
+      );
+      expect(sidecar(Sidecar.transcriptTxt), 'Speaker 1: 東京に行く\n');
+      expect(
+        sidecar(Sidecar.furigana),
+        '1\n00:00:01,000 --> 00:00:03,000\nSpeaker 1: ｜東京《とうきょう》に行く\n',
+      );
+
+      final plain = job(
+        (req) => _sse('1\n00:00:01,000 --> 00:00:03,000\nplain\n'),
+      );
+      await plain.run();
+      await pumpEventQueue();
+      expect(
+        File(library.sidecarFile(recording.file, Sidecar.furigana).path)
+            .existsSync(),
+        isFalse,
+      );
+    },
+  );
+
   test('fails on an empty response and writes nothing', () async {
     final j = job((req) => _sse('  '));
     await j.run();

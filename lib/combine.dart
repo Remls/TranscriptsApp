@@ -20,6 +20,7 @@ class CombinePart {
     required this.lang,
     required this.transcript,
     required this.translation,
+    this.furigana,
     required this.names,
     required this.overrides,
     required this.hasSummary,
@@ -40,6 +41,7 @@ class CombinePart {
       lang: library.langOf(file),
       transcript: cues(Sidecar.transcriptSrt),
       translation: cues(Sidecar.translation),
+      furigana: cues(Sidecar.furigana),
       names: library.readStringMap(file, Sidecar.speakers),
       overrides: library.readStringMap(file, Sidecar.overrides),
       hasSummary: library.sidecarFile(file, Sidecar.summary).existsSync(),
@@ -53,6 +55,9 @@ class CombinePart {
   final String lang;
   final List<Cue>? transcript;
   final List<Cue>? translation;
+
+  /// The transcript with readings, when it has them.
+  final List<Cue>? furigana;
   final Map<String, String> names;
   final Map<String, String> overrides;
   final bool hasSummary;
@@ -149,6 +154,10 @@ List<String> partsMissingTranslation(List<CombinePart> parts) {
 
 bool mergesTranslation(List<CombinePart> parts) =>
     hasTranscripts(parts) && parts.every((part) => part.translation != null);
+
+/// Whether every part has readings, so the combined transcript keeps them.
+bool mergesFurigana(List<CombinePart> parts) =>
+    hasTranscripts(parts) && parts.every((part) => part.furigana != null);
 
 /// The family base when every part belongs to one family, else the first
 /// part's name marked as combined.
@@ -254,12 +263,12 @@ List<Note> mergeNotes(List<CombinePart> parts) {
 List<Cue> mergeCues(
   List<CombinePart> parts,
   SpeakerMapping mapping, {
-  bool translation = false,
+  List<Cue>? Function(CombinePart part)? from,
 }) {
   final offsets = partOffsets(parts);
   final merged = <Cue>[];
   for (final (n, part) in parts.indexed) {
-    final cues = (translation ? part.translation : part.transcript)!;
+    final cues = (from ?? (part) => part.transcript)(part)!;
     for (final (c, cue) in cues.indexed) {
       merged.add(
         Cue(cue.start + offsets[n], cue.end + offsets[n], [
@@ -415,7 +424,10 @@ class CombineJob extends Job {
           ? formatSrt(mergeCues(parts, mapping))
           : null;
       final translation = mergesTranslation(parts)
-          ? formatSrt(mergeCues(parts, mapping, translation: true))
+          ? formatSrt(mergeCues(parts, mapping, from: (p) => p.translation))
+          : null;
+      final furigana = mergesFurigana(parts)
+          ? formatSrt(mergeCues(parts, mapping, from: (p) => p.furigana))
           : null;
       final names = combinedSpeakerNames(parts, mapping);
       final notes = mergeNotes(parts);
@@ -446,6 +458,7 @@ class CombineJob extends Job {
         write(Sidecar.lang, '${parts.first.lang}\n');
       }
       if (translation != null) write(Sidecar.translation, translation);
+      if (furigana != null) write(Sidecar.furigana, furigana);
       if (names.isNotEmpty) {
         write(
           Sidecar.speakers,

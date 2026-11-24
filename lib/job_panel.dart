@@ -98,6 +98,7 @@ class JobPanel extends StatelessWidget {
     this.note,
     this.options,
     this.outputRtl = false,
+    this.showOutput,
   });
 
   final IconData icon;
@@ -118,6 +119,10 @@ class JobPanel extends StatelessWidget {
 
   /// Whether the streamed output reads right to left.
   final bool outputRtl;
+
+  /// The streamed output as shown, when it differs from what the model
+  /// writes.
+  final String Function(String output)? showOutput;
 
   @override
   Widget build(BuildContext context) {
@@ -192,7 +197,8 @@ class JobPanel extends StatelessWidget {
               child: Align(
                 alignment: outputRtl ? .topRight : .topLeft,
                 child: Text(
-                  job.output.toString(),
+                  showOutput?.call(job.output.toString()) ??
+                      job.output.toString(),
                   textDirection: outputRtl ? .rtl : .ltr,
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,

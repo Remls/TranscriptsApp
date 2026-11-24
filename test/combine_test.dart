@@ -44,6 +44,7 @@ void main() {
     int seconds, {
     List<String>? transcript,
     List<String>? translation,
+    List<String>? furigana,
     String? lang,
     String? names,
     String? overrides,
@@ -56,6 +57,7 @@ void main() {
     );
     if (transcript != null) touch('$dir/transcript.srt', _srt(transcript));
     if (translation != null) touch('$dir/translation.srt', _srt(translation));
+    if (furigana != null) touch('$dir/furigana.srt', _srt(furigana));
     if (lang != null) touch('$dir/lang', '$lang\n');
     if (names != null) touch('$dir/speakers.json', names);
     if (overrides != null) touch('$dir/speaker-overrides.json', overrides);
@@ -235,6 +237,25 @@ void main() {
       '1',
     ]);
     expect(partOffsets(parts), [0, 10, 17]);
+  });
+
+  test('readings are merged only when every piece has them', () {
+    final parts = [
+      part('a.mp3', 10, transcript: ['x'], furigana: ['｜一《いち》']),
+      part('b.mp3', 5, transcript: ['y'], furigana: ['｜二《に》']),
+    ];
+    expect(mergesFurigana(parts), isTrue);
+    final merged = mergeCues(parts, [{}, {}], from: (p) => p.furigana);
+    expect(merged.map((c) => c.items.single.text), ['｜一《いち》', '｜二《に》']);
+    expect(merged.map((c) => c.start), [0, 10]);
+
+    expect(
+      mergesFurigana([
+        ...parts,
+        part('c.mp3', 3, transcript: ['z']),
+      ]),
+      isFalse,
+    );
   });
 
   test('describeCombination states what happens to each piece', () {

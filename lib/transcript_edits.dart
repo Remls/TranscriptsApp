@@ -92,7 +92,8 @@ class TranscriptEditor {
   }
 
   /// Replaces the text of line [item] of cue [cue] in the SRT stored as
-  /// [key]. Editing the transcript also refreshes its plain-text copy.
+  /// [key]. Editing the transcript also refreshes its plain-text copy, and
+  /// the line loses its readings.
   void setText(Sidecar key, int cue, int item, String rawText) {
     final text = rawText.replaceAll(RegExp(r'\s*\n\s*'), ' ').trim();
     if (text.isEmpty) throw const LibraryException('Enter some text');
@@ -105,6 +106,16 @@ class TranscriptEditor {
       library
           .sidecarFile(recording, Sidecar.transcriptTxt)
           .writeAsStringSync(srtToPlaintext(srt));
+      final furigana = library.sidecarFile(recording, Sidecar.furigana);
+      if (furigana.existsSync()) {
+        final withReadings = _cues(Sidecar.furigana);
+        if (cue < withReadings.length &&
+            item < withReadings[cue].items.length) {
+          final items = withReadings[cue].items;
+          items[item] = CueItem(items[item].speaker, text);
+          furigana.writeAsStringSync(formatSrt(withReadings));
+        }
+      }
     }
   }
 
@@ -180,8 +191,8 @@ class TranscriptEditor {
   /// Drops every manual speaker change, back to the transcript's own labels.
   void resetSpeakerChanges() => _writeMap(Sidecar.overrides, {});
 
-  /// Removes [lines], each a (cue, item) pair, from the transcript and from
-  /// the translation. A cue left with no lines is removed. Manual speaker
+  /// Removes [lines], each a (cue, item) pair, from the transcript, the
+  /// translation and the readings. A cue left with no lines is removed. Manual speaker
   /// changes move with the lines that remain.
   void deleteLines(Iterable<(int, int)> lines) {
     final doomed = lines.toSet();
@@ -198,10 +209,11 @@ class TranscriptEditor {
         .sidecarFile(recording, Sidecar.transcriptTxt)
         .writeAsStringSync(srtToPlaintext(srt));
 
-    final translation = library.sidecarFile(recording, Sidecar.translation);
-    if (translation.existsSync()) {
-      final (cues, _) = _withoutLines(_cues(Sidecar.translation), doomed);
-      translation.writeAsStringSync(formatSrt(cues));
+    for (final key in [Sidecar.translation, Sidecar.furigana]) {
+      final file = library.sidecarFile(recording, key);
+      if (!file.existsSync()) continue;
+      final (cues, _) = _withoutLines(_cues(key), doomed);
+      file.writeAsStringSync(formatSrt(cues));
     }
 
     final overrides = library.readStringMap(recording, Sidecar.overrides);

@@ -19,6 +19,12 @@ Cue ordering (STRICT — do not violate):
   separate cues for those utterances inside it. Either segment finely OR
   segment coarsely — never both at once. One cue per utterance, in order.''';
 
+const _furigana = '''Readings (furigana):
+- After every word that contains kanji, give its reading in hiragana as it was spoken, in Aozora Bunko ruby notation: ｜word《reading》.
+- Mark whole words, including any kana inside them: ｜食べ《たべ》る, ｜東京《とうきょう》, ｜今日《きょう》.
+- Use the reading actually spoken, for names too.
+- Do not add readings to words without kanji.''';
+
 const _outputFormat = '''Output format:
 - Return an SRT subtitle file ONLY, with no commentary, code fences, or notes.
 - Each cue should be a natural utterance (typically 3-10 seconds).
@@ -53,7 +59,7 @@ Output rules:
 - Render ${language.name} speech in ${language.script} only.
 - Render English speech in standard Latin/English script.
 - Do not translate. Preserve the original language of each word as spoken.
-
+${language.code == 'ja' ? '\n$_furigana\n' : ''}
 $_outputFormat
 
 $_timestampRules

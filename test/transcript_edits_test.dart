@@ -183,4 +183,22 @@ void main() {
     editor.setLinesSpeaker([(0, 0), (0, 1), (1, 0)], '2');
     expect(overrides(), {'0:0': '2', '1:0': '2'});
   });
+
+  test('edits and deletes keep the readings aligned', () {
+    sidecar(Sidecar.furigana).writeAsStringSync(
+      '1\n00:00:01,500 --> 00:00:04,000\nSpeaker 1: ｜一《いち》\nSpeaker 2: ｜二《に》\n\n'
+      '2\n01:02:03,004 --> 01:02:05,000\n｜平《たいら》\n\n'
+      '3\n01:02:06,000 --> 01:02:07,000\nSpeaker 1: ｜三《さん》\n',
+    );
+    List<String> lines() => [
+      for (final cue in parseSrt(sidecar(Sidecar.furigana).readAsStringSync()))
+        for (final item in cue.items) item.text,
+    ];
+
+    editor.setText(Sidecar.transcriptSrt, 0, 1, 'changed');
+    expect(lines(), ['｜一《いち》', 'changed', '｜平《たいら》', '｜三《さん》']);
+
+    editor.deleteLines([(1, 0)]);
+    expect(lines(), ['｜一《いち》', 'changed', '｜三《さん》']);
+  });
 }

@@ -36,6 +36,7 @@ enum Sidecar {
   transcriptTxt('transcript.txt'),
   lang('lang'),
   translation('translation.srt'),
+  furigana('furigana.srt'),
   summary('summary.md'),
   speakers('speakers.json'),
   overrides('speaker-overrides.json'),

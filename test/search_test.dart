@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:transcripts/notes.dart';
+import 'package:transcripts/ruby_text.dart';
 import 'package:transcripts/search.dart';
 import 'package:transcripts/srt.dart';
 import 'package:transcripts/transcript_view.dart';
@@ -114,5 +115,57 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('line 0'), findsOneWidget);
     expect(spanOf('line 0').children, isNull);
+  });
+
+  testWidgets('matches are marked inside words with readings', (tester) async {
+    final cues = [
+      Cue(0, 2, const [CueItem(null, '今日は東京に行く')]),
+    ];
+    final readings = [
+      Cue(0, 2, const [CueItem(null, '今日《きょう》は｜東京《とうきょう》に行く')]),
+    ];
+    final matches = findMatches(transcriptRows(cues, const []), cues, '京に');
+    expect(matches, hasLength(1));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TranscriptView(
+            cues: cues,
+            readings: readings,
+            notes: const [],
+            onNoteTap: (_) {},
+            noteImage: (_) => null,
+            onPictureTap: (_) {},
+            language: shipped('ja'),
+            speakerNames: const {},
+            speakerOverrides: const {},
+            activeIndex: ValueNotifier(-1),
+            onSeek: (_) {},
+            onLineLongPress: (_, _) {},
+            search: SearchHighlight(matches, 0),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(RubyWord), findsNWidgets(2));
+    final word = tester.widget<RubyWord>(
+      find.byWidgetPredicate((w) => w is RubyWord && w.reading == 'とうきょう'),
+    );
+    final parts = (word.base as TextSpan).children!.cast<TextSpan>();
+    expect(parts.map((s) => s.text), ['東', '京']);
+    expect(parts.last.style?.backgroundColor, currentMatchColor);
+
+    final line = tester.widget<Text>(
+      find.byWidgetPredicate(
+        (w) => w is Text && w.textSpan?.toPlainText().contains('に行く') == true,
+      ),
+    );
+    final marked = (line.textSpan! as TextSpan).children!
+        .whereType<TextSpan>()
+        .where((s) => s.style?.backgroundColor == currentMatchColor);
+    expect(marked.map((s) => s.text), ['に']);
   });
 }

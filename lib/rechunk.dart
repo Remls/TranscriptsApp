@@ -74,6 +74,7 @@ class SplitCarry {
     required this.problems,
     required this.transcript,
     required this.translation,
+    required this.furigana,
     required this.missingTranslation,
     required this.notes,
     required this.names,
@@ -92,7 +93,10 @@ class SplitCarry {
       problems: problems,
       transcript: transcribed ? mergeCues(parts, mapping) : null,
       translation: ok && mergesTranslation(parts)
-          ? mergeCues(parts, mapping, translation: true)
+          ? mergeCues(parts, mapping, from: (p) => p.translation)
+          : null,
+      furigana: ok && mergesFurigana(parts)
+          ? mergeCues(parts, mapping, from: (p) => p.furigana)
           : null,
       missingTranslation: transcribed && parts.first.lang != 'en'
           ? partsMissingTranslation(parts)
@@ -109,6 +113,9 @@ class SplitCarry {
   final List<String> problems;
   final List<Cue>? transcript;
   final List<Cue>? translation;
+
+  /// The transcript with readings, when every recording has them.
+  final List<Cue>? furigana;
 
   /// The recordings whose missing translation keeps it from being carried.
   final List<String> missingTranslation;
@@ -365,6 +372,8 @@ class RechunkJob extends Job {
     if (translation.isNotEmpty) {
       write(Sidecar.translation, formatSrt(translation));
     }
+    final furigana = cuesBetween(carry.furigana ?? const [], start, end);
+    if (furigana.isNotEmpty) write(Sidecar.furigana, formatSrt(furigana));
     final notes = notesBetween(carry.notes, start, end);
     writeNotes(library, chunk, notes);
     claimNoteImages(library, chunk, notes, pictures);
