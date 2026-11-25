@@ -53,9 +53,10 @@ State is plain `ChangeNotifier` objects.
 - `Playback` (`playback.dart`) is the player interface. `MediaSessionPlayback` (`media_session.dart`) plays audio files with `JustAudioPlayback` and videos, picture and sound together, with `VideoPlayback` (`video_playback.dart`), and shows them in the system media session through `PlaybackHandler` (`audio_service`).
 - `playbackSource` (`playback_source.dart`) checks a recording's codecs with ffprobe. A file Android cannot play gets a converted copy in its sidecar folder, made once and left out of backups and zips.
 - `Settings` wraps `SharedPreferences` and the Keystore-backed secrets.
-- `Library` (`library.dart`) is the on-disk layout. Sidecar paths go through `sidecarDir()` and `sidecarFile()`. Do not build them by hand.
+- `Library` (`library.dart`) is the on-disk layout. Sidecar paths go through `sidecarDir()` and `sidecarFile()`, and per-language files through `translationFile()`, `translationFuriganaFile()` and `summaryFile()`. Do not build them by hand.
 - `LanguageList` (`languages.dart`) is the user's language list, stored in `<library>/.languages.json`. Direction, font size and prompt notes come from it. Do not hardcode language checks elsewhere.
 - Jobs extend `Job` (`job.dart`): a status line, streamed output, cancel.
+- Pickers and action lists are bottom sheets built from `showSheet`, `SheetBody` and `SheetOption` (`sheet.dart`). Overflow menus use `MenuButton` (`menu.dart`).
 - Pure logic stays out of widgets so it can be tested with temp directories and fakes.
 - `MainActivity.kt` extends `AudioServiceActivity` and hosts the share, save-as, job service and PiP channels.
 
@@ -66,8 +67,9 @@ audios/
   <folder>/
     <name>.mp3
     .<name>/
-      transcript.srt  transcript.txt  lang
-      translation.srt  furigana.srt  summary.md
+      transcript.srt  transcript.txt  lang  furigana.srt
+      translation.srt  translation.<code>.srt  furigana.<code>.srt
+      summary.md  summary.<code>.md
       speakers.json  speaker-overrides.json
       audio.mp3  notes.json  notes/<id>.jpg  context.txt
       playback.mkv or playback.m4a
@@ -76,7 +78,9 @@ audios/
   .trash/
 ```
 
-Folders are one level deep. `lang` absent means `dv`. `furigana.srt` is the transcript with readings in Aozora ruby notation (`｜漢字《かんじ》`), written only for Japanese transcripts that have readings. `transcript.srt` stays plain. `context.txt` is the user's note about the recording, sent with the transcription, translation and summary prompts along with the file name.
+Folders are one level deep. `lang` absent means `dv`. `furigana.srt` is the transcript with readings in Aozora ruby notation (`｜漢字《かんじ》`), written only for Japanese transcripts that have readings. `transcript.srt` stays plain.
+
+Translations and summaries are per language. English stays in `translation.srt` and `summary.md`, and other languages go in `translation.<code>.srt` and `summary.<code>.md`. A Japanese translation keeps its readings in `furigana.ja.srt`. `context.txt` is the user's note about the recording, sent with the transcription, translation and summary prompts along with the file name.
 
 ## Guards to keep
 

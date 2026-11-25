@@ -4,15 +4,18 @@ An Android app that transcribes recordings with Gemini, then translates and summ
 
 <p>
   <img src="docs/screenshots/library.png" width="200" alt="Library with folders, recordings and the mini player">
-  <img src="docs/screenshots/transcript.png" width="200" alt="Right-to-left transcript with speakers and a note">
-  <img src="docs/screenshots/translation.png" width="200" alt="English translation of the same recording">
+  <img src="docs/screenshots/transcript-dv.png" width="200" alt="Dhivehi transcript, right to left, with speakers and a note">
+  <img src="docs/screenshots/translation-en.png" width="200" alt="English translation of the same recording">
+  <img src="docs/screenshots/translation-jp.png" width="200" alt="Japanese translation of the same recording, with furigana">
   <img src="docs/screenshots/summary.png" width="200" alt="Summary of the recording">
 </p>
 
 ## Features
 
 - Transcripts with speaker labels, synced to playback
-- Translation to English and summaries, per recording and per folder
+- Translations and summaries in any language on your list, and summaries of whole folders
+- Furigana above Japanese text
+- A context note per recording, sent to the model with its file name
 - An editable language list with script, direction, text size and notes for the model
 - Audio and video, with fullscreen, subtitles and picture-in-picture
 - Notes with photos at points in a recording
@@ -73,13 +76,13 @@ Phones take `build/app/outputs/flutter-apk/app-arm64-v8a-release.apk`. Install i
 
 ## Setup
 
-In Settings, add a Gemini API key and model. For translation and summaries with Claude, also add an Anthropic API key and model.
+In Settings, under AI models, add a Gemini API key. To translate and summarize with Claude, also add an Anthropic API key and model, then choose Claude.
 
 ## Data
 
-Recordings are uploaded to Google's Gemini API for transcription, and the app deletes the upload when the job ends. Transcripts, translations and note photos go to Gemini or Claude for translation and summaries. Looking up a language sends its name to Gemini.
+Recordings are uploaded to Google's Gemini API for transcription, and the app deletes the upload when the job ends. Each recording's file name and context note go with it. Transcripts, translations and note photos go to Gemini or Claude for translation and summaries. Looking up a language sends its name to Gemini.
 
-The library lives in the app's private storage and is deleted on uninstall. Create backup in Settings saves it as one zip. Restore from backup merges a zip into the library or replaces the library with it.
+The library lives in the app's private storage and is deleted on uninstall. Backup and restore in Settings saves it as one zip, and merges a zip into the library or replaces the library with it.
 
 ## Development
 
