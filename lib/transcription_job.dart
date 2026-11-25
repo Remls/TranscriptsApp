@@ -88,7 +88,11 @@ Future<void> transcribeRecording(
     job.setStatus('Transcribing ${language.name} with $model');
     final chunks = gemini.generateStream(
       model: model,
-      prompt: buildTranscriptionPrompt(language),
+      prompt: withBackground(
+        buildTranscriptionPrompt(language),
+        title: p.basenameWithoutExtension(recording.path),
+        note: library.contextOf(recording),
+      ),
       file: remote,
     );
     await for (final chunk in chunks) {

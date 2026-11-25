@@ -41,6 +41,7 @@ enum Sidecar {
   speakers('speakers.json'),
   overrides('speaker-overrides.json'),
   notes('notes.json'),
+  context('context.txt'),
   audio('audio.mp3'),
   playbackVideo('playback.mkv'),
   playbackSound('playback.m4a');
@@ -134,6 +135,25 @@ class Library {
       if (isValidLangCode(code)) return code;
     }
     return defaultLang;
+  }
+
+  /// The user's note about [recording] for the model, or empty when none.
+  String contextOf(File recording) {
+    final f = sidecarFile(recording, Sidecar.context);
+    return f.existsSync() ? f.readAsStringSync().trim() : '';
+  }
+
+  /// Saves [text] as the note about [recording], or removes the note when
+  /// [text] is blank.
+  void writeContext(File recording, String text) {
+    final f = sidecarFile(recording, Sidecar.context);
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) {
+      if (f.existsSync()) f.deleteSync();
+      return;
+    }
+    f.parent.createSync(recursive: true);
+    f.writeAsStringSync('$trimmed\n');
   }
 
   /// A sidecar JSON object of string values, or empty when absent or invalid.

@@ -83,6 +83,18 @@ void main() {
         reason: lang,
       );
     }
+    expect(
+      withBackground(
+        '<prompt>\n',
+        title: 'Title',
+        note: ' Line one.\nLine two. ',
+      ),
+      fixture('background_prompt'),
+    );
+    expect(
+      withBackground('<prompt>\n', title: 'Title', note: '  '),
+      fixture('background_prompt_no_note'),
+    );
     expect(summaryPrompt, fixture('summary_prompt'));
     expect(folderFlatPrompt, fixture('folder_flat_prompt'));
     expect(folderHierPrompt, fixture('folder_hier_prompt'));
@@ -130,8 +142,39 @@ void main() {
     await job.run();
 
     expect(job.state, JobState.done);
-    expect(sent, (buildTranslationPrompt(shipped('ja')), _srt));
+    expect(sent, (
+      withBackground(buildTranslationPrompt(shipped('ja')), title: 'a'),
+      _srt,
+    ));
     expect(read('.a/translation.srt'), 'translated\n');
+  });
+
+  test('translation sends the saved context note', () async {
+    final rec = touch('a.mp3');
+    touch('.a/transcript.srt', _srt);
+    touch('.a/lang', 'ja\n');
+    library.writeContext(rec, 'Two speakers.');
+    late (String, String?) sent;
+    final job = TranslationJob(
+      library: library,
+      recording: rec,
+      generator: _gemini,
+      languages: LanguageList(root),
+      clientFactory: () => MockClient((req) async {
+        sent = _parts(req);
+        return _geminiText('translated');
+      }),
+    );
+    await job.run();
+
+    expect(
+      sent.$1,
+      withBackground(
+        buildTranslationPrompt(shipped('ja')),
+        title: 'a',
+        note: 'Two speakers.',
+      ),
+    );
   });
 
   test('summary needs a translation first', () async {
@@ -165,7 +208,10 @@ void main() {
     await job.run();
 
     expect(job.state, JobState.done);
-    expect(sent, (summaryPrompt, 'Speaker 1: one\nSpeaker 2: two\nplain'));
+    expect(sent, (
+      withBackground(summaryPrompt, title: 'a'),
+      'Speaker 1: one\nSpeaker 2: two\nplain',
+    ));
     expect(read('.a/summary.md'), '- a point\n');
   });
 
@@ -222,7 +268,7 @@ void main() {
           final (prompt, input) = _parts(req);
           prompts.add(prompt);
           inputs.add(input);
-          if (prompt.startsWith('You are translating')) {
+          if (prompt.contains('You are translating')) {
             return _geminiText(_srt.replaceAll('one', 'uno'));
           }
           return _geminiText('output ${prompts.length}');
@@ -247,7 +293,7 @@ void main() {
 
       expect(j.state, JobState.done, reason: j.error);
       expect(prompts, [
-        buildTranslationPrompt(shipped('dv')),
+        withBackground(buildTranslationPrompt(shipped('dv')), title: 'a'),
         folderFlatPrompt,
       ]);
       expect(read('set/.a/translation.srt'), _srt.replaceAll('one', 'uno'));
@@ -270,7 +316,10 @@ void main() {
       await j.run();
 
       expect(j.state, JobState.done, reason: j.error);
-      expect(prompts, [summaryPrompt, folderHierPrompt]);
+      expect(prompts, [
+        withBackground(summaryPrompt, title: 'b'),
+        folderHierPrompt,
+      ]);
       expect(read('set/.b/summary.md'), 'output 1\n');
       expect(inputs.last, '## a\n\nexisting summary\n\n## b\n\noutput 1');
       expect(read('set/.summary-hier.md'), 'output 2\n');

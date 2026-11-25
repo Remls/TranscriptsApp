@@ -4,6 +4,7 @@ import 'job.dart';
 import 'language_editor.dart';
 import 'language_lookup.dart';
 import 'languages.dart';
+import 'prompts.dart';
 
 const _addLanguage = '';
 
@@ -45,6 +46,52 @@ class LanguageDropdown extends StatelessWidget {
           final added = await showLanguageEditor(context, languages, lookup);
           if (added != null) onChanged(added.code);
         },
+      ),
+    );
+  }
+}
+
+/// The optional note about a recording that goes to the model with it.
+class ContextField extends StatefulWidget {
+  const ContextField({
+    super.key,
+    required this.initialText,
+    required this.onChanged,
+  });
+
+  final String initialText;
+  final ValueChanged<String> onChanged;
+
+  @override
+  State<ContextField> createState() => _ContextFieldState();
+}
+
+class _ContextFieldState extends State<ContextField> {
+  late final _controller = TextEditingController(text: widget.initialText);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 480),
+      child: TextField(
+        controller: _controller,
+        onChanged: widget.onChanged,
+        maxLength: contextLimit,
+        minLines: 2,
+        maxLines: 5,
+        textCapitalization: .sentences,
+        decoration: const InputDecoration(
+          labelText: 'Context (optional)',
+          hintText: 'Names, topics or terms that come up',
+          alignLabelWithHint: true,
+          border: OutlineInputBorder(),
+        ),
       ),
     );
   }
@@ -232,13 +279,16 @@ Future<bool> confirmRegenerate(
     context: context,
     builder: (context) => AlertDialog(
       title: Text('Regenerate $what?'),
-      content: Column(
-        mainAxisSize: .min,
-        crossAxisAlignment: .start,
-        children: [
-          Text('The current $what is replaced when the new one finishes.'),
-          if (options != null) ...[const SizedBox(height: 12), options],
-        ],
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: .min,
+          crossAxisAlignment: .start,
+          children: [
+            Text('The current $what is replaced when the new one finishes.'),
+            if (options != null) ...[const SizedBox(height: 12), options],
+          ],
+        ),
       ),
       actions: [
         TextButton(

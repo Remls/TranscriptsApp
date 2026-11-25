@@ -112,4 +112,19 @@ void main() {
     expect(library.recordingAt('folder/a.mp3')!.path, rec.path);
     expect(library.recordingAt('folder/missing.mp3'), isNull);
   });
+
+  test('the context note is saved trimmed and removed when blank', () {
+    final rec = touch('a.mp3');
+    final file = library.sidecarFile(rec, Sidecar.context);
+    expect(library.contextOf(rec), '');
+
+    library.writeContext(rec, '  Two speakers.\n');
+    expect(file.readAsStringSync(), 'Two speakers.\n');
+    expect(library.contextOf(rec), 'Two speakers.');
+
+    library.writeContext(rec, '   ');
+    expect(file.existsSync(), isFalse);
+    library.writeContext(rec, '');
+    expect(file.existsSync(), isFalse);
+  });
 }

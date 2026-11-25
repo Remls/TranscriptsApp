@@ -95,6 +95,10 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
   /// Whether the search field takes the keyboard when it opens.
   bool _focusSearch = true;
   final _searchField = TextEditingController();
+
+  /// The note about the open recording, as typed in the transcription panel.
+  var _context = '';
+  String? _contextPath;
   Timer? _searchDebounce;
   String _query = '';
   int _matchIndex = 0;
@@ -454,14 +458,24 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
     _Tab.summary => recording.hasSummary,
   };
 
+  /// The note typed for [recording], starting from its saved note.
+  String _contextFor(Recording recording) {
+    if (_contextPath != recording.relPath) {
+      _contextPath = recording.relPath;
+      _context = _session.library.contextOf(recording.file);
+    }
+    return _context;
+  }
+
   /// Starts the job behind [tab], reporting a missing setting or a failed
   /// regeneration in a snackbar.
-  void _start(Recording recording, _Tab tab, {String? lang}) {
+  void _start(Recording recording, _Tab tab, {String? lang, String? note}) {
     final hadContent = _hasContent(recording, tab);
     final problem = switch (tab) {
       _Tab.transcript => _session.startTranscription(
         recording,
         lang ?? _session.transcribeLang,
+        context: note ?? _contextFor(recording),
       ),
       _Tab.translation => _session.startTranslation(recording),
       _Tab.summary => _session.startSummary(recording),
@@ -497,22 +511,36 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
     var lang = _session.languages.contains(recording.lang)
         ? recording.lang
         : _session.transcribeLang;
+    var note = _session.library.contextOf(recording.file);
     final confirmed = await confirmRegenerate(
       context,
       what: tab.noun,
       options: tab != _Tab.transcript
           ? null
           : StatefulBuilder(
-              builder: (context, setDialogState) => LanguageRow(
-                label: 'Language',
-                languages: _session.languages,
-                lookup: _session.languageLookup,
-                value: lang,
-                onChanged: (code) => setDialogState(() => lang = code),
+              builder: (context, setDialogState) => Column(
+                mainAxisSize: .min,
+                crossAxisAlignment: .start,
+                children: [
+                  LanguageRow(
+                    label: 'Language',
+                    languages: _session.languages,
+                    lookup: _session.languageLookup,
+                    value: lang,
+                    onChanged: (code) => setDialogState(() => lang = code),
+                  ),
+                  const SizedBox(height: 16),
+                  ContextField(
+                    initialText: note,
+                    onChanged: (text) => note = text,
+                  ),
+                ],
               ),
             ),
     );
-    if (confirmed && mounted) _start(recording, tab, lang: lang);
+    if (confirmed && mounted) {
+      _start(recording, tab, lang: lang, note: note);
+    }
   }
 
   Widget _menu(Recording recording) {
@@ -753,12 +781,23 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
                 ? job.language.rtl
                 : language.rtl,
             showOutput: stripRuby,
-            options: LanguageRow(
-              label: 'Language',
-              languages: _session.languages,
-              lookup: _session.languageLookup,
-              value: _session.transcribeLang,
-              onChanged: _session.settings.setTranscribeLang,
+            options: Column(
+              mainAxisSize: .min,
+              children: [
+                LanguageRow(
+                  label: 'Language',
+                  languages: _session.languages,
+                  lookup: _session.languageLookup,
+                  value: _session.transcribeLang,
+                  onChanged: _session.settings.setTranscribeLang,
+                ),
+                const SizedBox(height: 16),
+                ContextField(
+                  key: ValueKey('${recording.relPath}:context'),
+                  initialText: _contextFor(recording),
+                  onChanged: (text) => _context = text,
+                ),
+              ],
             ),
             onStart: () => _start(recording, tab),
           );

@@ -113,6 +113,14 @@ SummaryInput? summaryInput(Library library, File recording) {
 bool hasTextNotes(Library library, File recording) =>
     readNotes(library, recording).any((n) => n.text.trim().isNotEmpty);
 
+/// [prompt] with [recording]'s file name and the user's note about it.
+String _aboutRecording(String prompt, Library library, File recording) =>
+    withBackground(
+      prompt,
+      title: p.basenameWithoutExtension(recording.path),
+      note: library.contextOf(recording),
+    );
+
 Future<String> _generate(
   Job job,
   TextGenerator generator, {
@@ -147,8 +155,10 @@ Future<void> translateRecording(
   final out = await _generate(
     job,
     generator,
-    prompt: buildTranslationPrompt(
-      languages.resolve(library.langOf(recording)),
+    prompt: _aboutRecording(
+      buildTranslationPrompt(languages.resolve(library.langOf(recording))),
+      library,
+      recording,
     ),
     input: srt.readAsStringSync(),
   );
@@ -172,9 +182,13 @@ Future<void> summarizeRecording(
   final out = await _generate(
     job,
     generator,
-    prompt: summaryPromptFor(
-      notes: input.hasNotes,
-      pictures: input.images.isNotEmpty,
+    prompt: _aboutRecording(
+      summaryPromptFor(
+        notes: input.hasNotes,
+        pictures: input.images.isNotEmpty,
+      ),
+      library,
+      recording,
     ),
     input: input.text,
     images: input.images,

@@ -305,11 +305,14 @@ class Session extends ChangeNotifier {
     return languages.contains(code) ? code : defaultLang;
   }
 
-  String? startTranscription(Recording r, String lang) {
+  /// Starts transcribing [r] in [lang], first saving [context] as the note
+  /// about it when given.
+  String? startTranscription(Recording r, String lang, {String? context}) {
     if (settings.geminiKey.isEmpty) return 'Add a Gemini API key in Settings';
     if (settings.geminiModel.isEmpty) {
       return 'Choose a Gemini model in Settings';
     }
+    if (context != null) library.writeContext(r.file, context);
     _start(
       JobKind.transcribe,
       r.relPath,

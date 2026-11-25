@@ -30,6 +30,31 @@ const _outputFormat = '''Output format:
 - Each cue should be a natural utterance (typically 3-10 seconds).
 - If multiple speakers are present, prefix each cue's text with a label like "Speaker 1:".''';
 
+/// The longest note about a recording the user can write.
+const contextLimit = 2000;
+
+/// [prompt] after a section on the recording: its file name [title] and the
+/// user's [note] about it.
+String withBackground(
+  String prompt, {
+  required String title,
+  String note = '',
+}) {
+  final trimmed = note.trim();
+  return [
+    'Background on this recording. It is not part of the recording itself.',
+    '- File name: "$title". It may or may not describe the content.',
+    if (trimmed.isNotEmpty) ...[
+      '- Note from the person who made it:',
+      '"""',
+      trimmed,
+      '"""',
+    ],
+    '',
+    prompt,
+  ].join('\n');
+}
+
 String buildTranscriptionPrompt(Language language) {
   if (language.code == 'en') {
     return '''Transcribe this English audio recording verbatim.

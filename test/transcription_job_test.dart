@@ -104,7 +104,10 @@ void main() {
     await pumpEventQueue();
 
     expect(j.state, JobState.done);
-    expect(prompt, buildTranscriptionPrompt(shipped('ja')));
+    expect(
+      prompt,
+      withBackground(buildTranscriptionPrompt(shipped('ja')), title: 'talk'),
+    );
     expect(
       sidecar(Sidecar.transcriptSrt),
       '1\n00:00:05,000 --> 00:00:10,000\nSpeaker 1: one\nSpeaker 2: two\n',

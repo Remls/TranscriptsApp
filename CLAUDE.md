@@ -69,14 +69,14 @@ audios/
       transcript.srt  transcript.txt  lang
       translation.srt  furigana.srt  summary.md
       speakers.json  speaker-overrides.json
-      audio.mp3  notes.json  notes/<id>.jpg
+      audio.mp3  notes.json  notes/<id>.jpg  context.txt
       playback.mkv or playback.m4a
     .summary-flat.md  .summary-hier.md
   .languages.json
   .trash/
 ```
 
-Folders are one level deep. `lang` absent means `dv`. `furigana.srt` is the transcript with readings in Aozora ruby notation (`｜漢字《かんじ》`), written only for Japanese transcripts that have readings. `transcript.srt` stays plain.
+Folders are one level deep. `lang` absent means `dv`. `furigana.srt` is the transcript with readings in Aozora ruby notation (`｜漢字《かんじ》`), written only for Japanese transcripts that have readings. `transcript.srt` stays plain. `context.txt` is the user's note about the recording, sent with the transcription, translation and summary prompts along with the file name.
 
 ## Guards to keep
 

@@ -153,7 +153,10 @@ void main() {
       await job.run();
 
       expect(job.state, JobState.done, reason: job.error);
-      expect(parts[0]['text'], summaryPromptFor(notes: true));
+      expect(
+        parts[0]['text'],
+        withBackground(summaryPromptFor(notes: true), title: 'a'),
+      );
       expect(parts[1]['text'], contains('[Note at 0:12: Context.]'));
     },
   );
@@ -263,7 +266,13 @@ void main() {
     test('go to Gemini as inline data after the transcript', () async {
       final body = await requestBody(TextProvider.gemini);
       final parts = body['contents'][0]['parts'] as List;
-      expect(parts[0]['text'], summaryPromptFor(notes: true, pictures: true));
+      expect(
+        parts[0]['text'],
+        withBackground(
+          summaryPromptFor(notes: true, pictures: true),
+          title: 'a',
+        ),
+      );
       expect(parts[1]['text'], contains('with Picture 1: Board'));
       expect(parts[2], {'text': 'Picture 1:'});
       expect(parts[3], {
@@ -273,7 +282,13 @@ void main() {
 
     test('go to Claude as image blocks after the transcript', () async {
       final body = await requestBody(TextProvider.anthropic);
-      expect(body['system'], summaryPromptFor(notes: true, pictures: true));
+      expect(
+        body['system'],
+        withBackground(
+          summaryPromptFor(notes: true, pictures: true),
+          title: 'a',
+        ),
+      );
       final content = body['messages'][0]['content'] as List;
       expect(content[0]['type'], 'text');
       expect(content[0]['text'], contains('with Picture 1: Board'));
