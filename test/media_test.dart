@@ -95,6 +95,7 @@ void main() {
           900,
           1200,
           carry: bare,
+          languageName: _name,
         ),
         [
           'Joins 2 recordings first, 36:40 in total: talk (25:00), '
@@ -112,6 +113,7 @@ void main() {
           60,
           120,
           carry: carryOf([touch('day.mp3')]),
+          languageName: _name,
         ).first,
         'Cuts "day.mp3" into 90 chunks, day_1.mp3 to day_90.mp3. Each is 1:00 '
         'long and the last is 1:30.',
@@ -135,11 +137,12 @@ void main() {
           900,
           1200,
           carry: carryOf([rec]),
+          languageName: _name,
         ),
         [
           'Cuts "long.m4a" into 3 chunks: long_1.m4a (15:00), '
               'long_2.m4a (15:00), long_3.m4a (18:20).',
-          'The transcript, the translation and your 2 notes are cut at the '
+          'The transcript, the English translation and your 2 notes are cut at the '
               'same points and kept with the chunks. A line that runs across '
               'a cut stays in the chunk where it starts.',
           'Summaries are not carried over (1 of the recordings has one). '
@@ -159,6 +162,7 @@ void main() {
         900,
         1200,
         carry: carryOf([rec]),
+        languageName: _name,
       );
       expect(lines[1], startsWith('Your 1 note is cut at the same points'));
     });
@@ -266,6 +270,15 @@ void main() {
           'set/.talk_2/translation.srt',
           srt([(0, 'Speaker 2: B1'), (10, 'Speaker 2: B2')]),
         );
+        touch(
+          'set/.talk/translation.ja.srt',
+          srt([(1, 'Speaker 1: ア1'), (9, 'Speaker 2: ア2')]),
+        );
+        touch(
+          'set/.talk_2/translation.ja.srt',
+          srt([(0, 'Speaker 2: ビ1'), (10, 'Speaker 2: ビ2')]),
+        );
+        library.writeContext(a, 'A boat trip.');
         touch('set/.talk_2/speakers.json', '{"2": "Host"}');
         touch('set/.talk_2/lang', 'ja\n');
         writeNotes(library, a, const [Note(id: 'n1', time: 4, text: 'early')]);
@@ -289,16 +302,22 @@ void main() {
         );
         expect(read('set/.talk_2/translation.srt'), contains('Speaker 1: B2'));
         expect(
+          read('set/.talk_1/translation.ja.srt'),
+          contains('Speaker 2: ア2'),
+        );
+        expect(
+          read('set/.talk_2/translation.ja.srt'),
+          contains('Speaker 1: ビ2'),
+        );
+        expect(
           read('set/.talk_1/transcript.txt'),
           'Speaker 1: a1\nSpeaker 2: a2\n',
         );
         expect(read('set/.talk_2/lang'), 'ja\n');
         for (final chunk in j.chunks) {
           expect(library.readStringMap(chunk, Sidecar.speakers), {'1': 'Host'});
-          expect(
-            library.sidecarFile(chunk, Sidecar.summary).existsSync(),
-            isFalse,
-          );
+          expect(library.summaryFile(chunk, 'en').existsSync(), isFalse);
+          expect(library.contextOf(chunk), 'A boat trip.');
         }
         expect(readNotes(library, j.chunks[0]).map((n) => (n.id, n.time)), [
           ('n1', 4.0),
@@ -491,3 +510,6 @@ void main() {
     },
   );
 }
+
+String _name(String code) =>
+    const {'en': 'English', 'ja': 'Japanese'}[code] ?? code;

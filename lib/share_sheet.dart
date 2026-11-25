@@ -137,7 +137,7 @@ Future<void> showShareSheet(
         recording.file.path,
         zipPath,
         report,
-        languages: session.languages.jsonFor([recording.lang]),
+        languages: session.languages.jsonFor(recording.languages),
       ),
     );
     return;
@@ -175,7 +175,7 @@ Future<void> shareFolderZip(
       zipPath,
       report,
       languages: session.languages.jsonFor([
-        for (final r in session.library.recordingsIn(folder)) r.lang,
+        for (final r in session.library.recordingsIn(folder)) ...r.languages,
       ]),
     ),
   );

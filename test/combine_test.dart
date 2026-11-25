@@ -280,14 +280,15 @@ void main() {
       parts,
       defaultSpeakerMapping(parts),
       'talk',
+      languageName: _name,
     );
     expect(lines, [
       'Joins 2 recordings into "talk.mp3", 1:45 long, in this order: '
           'talk_1 (starts at 0:00), talk_2 (starts at 1:15).',
       "The transcripts are merged into one, with each part's timestamps "
           'shifted to where it starts.',
-      'The translation is left out, because talk_2 has none. Translate the '
-          'combined recording afterwards.',
+      'The English translation is left out, because talk_2 has none. '
+          'Translate the combined recording afterwards.',
       'Host is Host in talk_1, Host in talk_2.',
       'Manual speaker changes are kept.',
       'Summaries are not carried over (1 of the recordings has one). '
@@ -297,13 +298,21 @@ void main() {
     ]);
 
     final bare = [part('x.mp3', 5), part('y.mp3', 5)];
-    expect(describeCombination(bare, defaultSpeakerMapping(bare), 'xy'), [
-      'Joins 2 recordings into "xy.mp3", 0:10 long, in this order: '
-          'x (starts at 0:00), y (starts at 0:05).',
-      'None of the recordings has a transcript, so only the audio is joined.',
-      'The 2 originals move to the trash with everything attached to them. '
-          'You can restore them from there.',
-    ]);
+    expect(
+      describeCombination(
+        bare,
+        defaultSpeakerMapping(bare),
+        'xy',
+        languageName: _name,
+      ),
+      [
+        'Joins 2 recordings into "xy.mp3", 0:10 long, in this order: '
+            'x (starts at 0:00), y (starts at 0:05).',
+        'None of the recordings has a transcript, so only the audio is joined.',
+        'The 2 originals move to the trash with everything attached to them. '
+            'You can restore them from there.',
+      ],
+    );
   });
 
   group('CombineJob', () {
@@ -390,7 +399,12 @@ void main() {
         CombinePart.load(library, b.file, 5),
       ];
       expect(
-        describeCombination(parts, defaultSpeakerMapping(parts), 'ab'),
+        describeCombination(
+          parts,
+          defaultSpeakerMapping(parts),
+          'ab',
+          languageName: _name,
+        ),
         contains('Your 2 notes are kept, moved to their new times.'),
       );
       final j = job(parts, 'ab');
@@ -435,12 +449,52 @@ void main() {
       );
     });
 
+    test('merges every shared translation and joins the context', () async {
+      final parts = [
+        part('a.mp3', 4, transcript: ['x'], translation: ['x']),
+        part('b.mp3', 4, transcript: ['y'], translation: ['y']),
+      ];
+      touch('.a/translation.ja.srt', _srt(['エックス']));
+      touch('.b/translation.ja.srt', _srt(['ワイ']));
+      touch('.a/translation.ko.srt', _srt(['엑스']));
+      library.writeContext(parts[0].file, 'First.');
+      library.writeContext(parts[1].file, 'Second.');
+      final loaded = [
+        CombinePart.load(library, parts[0].file, 4),
+        CombinePart.load(library, parts[1].file, 4),
+      ];
+      expect(
+        describeCombination(
+          loaded,
+          defaultSpeakerMapping(loaded),
+          'ab',
+          languageName: _name,
+        ),
+        containsAll([
+          'The English and Japanese translations are merged the same way.',
+          'The ko translation is left out, because b has none. Translate the '
+              'combined recording afterwards.',
+          'The context you wrote for the recordings is joined into one.',
+        ]),
+      );
+      final j = job(loaded, 'ab');
+      await j.run();
+
+      expect(j.state, JobState.done, reason: j.error);
+      expect(read('.ab/translation.srt'), contains('y'));
+      expect(read('.ab/translation.ja.srt'), contains('ワイ'));
+      expect(read('.ab/translation.ko.srt'), isNull);
+      expect(library.contextOf(j.result!), 'First.\n\nSecond.');
+    });
+
     test('leaves out the translation when a part lacks one', () async {
       final parts = [
         part('a.mp3', 4, transcript: ['x'], translation: ['x']),
         part('b.mp3', 4, transcript: ['y']),
       ];
-      expect(partsMissingTranslation(parts), ['b']);
+      expect(partsMissingTranslations(parts), {
+        'en': ['b'],
+      });
       final j = job(parts, 'ab');
       await j.run();
 
@@ -499,3 +553,6 @@ void main() {
     });
   });
 }
+
+String _name(String code) =>
+    const {'en': 'English', 'ja': 'Japanese'}[code] ?? code;

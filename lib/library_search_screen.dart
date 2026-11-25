@@ -10,7 +10,7 @@ import 'srt.dart';
 /// A library search hit the user picked, with the query that found it.
 typedef PickedHit = ({LibraryHit hit, String query});
 
-/// Searches every recording's transcript, translation and notes. Pops with
+/// Searches every recording's transcript, translations and notes. Pops with
 /// the [PickedHit] the user taps.
 class LibrarySearchScreen extends StatefulWidget {
   const LibrarySearchScreen({

@@ -35,9 +35,7 @@ enum Sidecar {
   transcriptSrt('transcript.srt'),
   transcriptTxt('transcript.txt'),
   lang('lang'),
-  translation('translation.srt'),
   furigana('furigana.srt'),
-  summary('summary.md'),
   speakers('speakers.json'),
   overrides('speaker-overrides.json'),
   notes('notes.json'),
@@ -57,8 +55,8 @@ class Recording {
     required this.relPath,
     required this.lang,
     required this.hasTranscript,
-    required this.hasTranslation,
-    required this.hasSummary,
+    required this.translations,
+    required this.summaries,
   });
 
   final File file;
@@ -67,8 +65,18 @@ class Recording {
   final String relPath;
   final String lang;
   final bool hasTranscript;
-  final bool hasTranslation;
-  final bool hasSummary;
+
+  /// The languages the recording is translated into, English first.
+  final List<String> translations;
+
+  /// The languages the recording is summarized in, English first.
+  final List<String> summaries;
+
+  bool get hasTranslation => translations.isNotEmpty;
+
+  /// Every language the recording has text in.
+  Set<String> get languages => {lang, ...translations, ...summaries};
+  bool get hasSummary => summaries.isNotEmpty;
 
   String get name => p.basenameWithoutExtension(file.path);
   bool get isVideo => videoExts.contains(p.extension(file.path).toLowerCase());
@@ -119,6 +127,50 @@ class Library {
 
   File sidecarFile(File recording, Sidecar key) {
     return File(p.join(sidecarDir(recording).path, key.fileName));
+  }
+
+  /// [recording]'s translation into [lang]: `translation.srt` for English,
+  /// else `translation.<lang>.srt`.
+  File translationFile(File recording, String lang) =>
+      _langFile(recording, 'translation', '.srt', lang);
+
+  /// [recording]'s summary in [lang]: `summary.md` for English, else
+  /// `summary.<lang>.md`.
+  File summaryFile(File recording, String lang) =>
+      _langFile(recording, 'summary', '.md', lang);
+
+  /// The languages [recording] has a translation in, English first, then by
+  /// code.
+  List<String> translationLangs(File recording) =>
+      _langsOf(recording, 'translation', '.srt');
+
+  /// The languages [recording] has a summary in, English first, then by code.
+  List<String> summaryLangs(File recording) =>
+      _langsOf(recording, 'summary', '.md');
+
+  File _langFile(File recording, String stem, String ext, String lang) => File(
+    p.join(
+      sidecarDir(recording).path,
+      lang == englishLang ? '$stem$ext' : '$stem.$lang$ext',
+    ),
+  );
+
+  List<String> _langsOf(File recording, String stem, String ext) {
+    final dir = sidecarDir(recording);
+    if (!dir.existsSync()) return const [];
+    final name = RegExp(
+      '^${RegExp.escape(stem)}(?:\\.([a-z]{2,}))?${RegExp.escape(ext)}\$',
+    );
+    final langs = <String>{};
+    for (final f in dir.listSync().whereType<File>()) {
+      final m = name.firstMatch(p.basename(f.path));
+      if (m != null) langs.add(m[1] ?? englishLang);
+    }
+    return langs.toList()..sort((a, b) {
+      if (a == englishLang) return -1;
+      if (b == englishLang) return 1;
+      return a.compareTo(b);
+    });
   }
 
   /// The audio to upload for transcription: the extracted sidecar audio
@@ -180,8 +232,8 @@ class Library {
       relPath: p.split(p.relative(file.path, from: root.path)).join('/'),
       lang: langOf(file),
       hasTranscript: sidecarFile(file, Sidecar.transcriptSrt).existsSync(),
-      hasTranslation: sidecarFile(file, Sidecar.translation).existsSync(),
-      hasSummary: sidecarFile(file, Sidecar.summary).existsSync(),
+      translations: translationLangs(file),
+      summaries: summaryLangs(file),
     );
   }
 

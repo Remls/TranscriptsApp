@@ -56,6 +56,9 @@ class Language {
 
 const defaultLang = 'dv';
 
+/// The default language for translations and summaries.
+const englishLang = 'en';
+
 /// The language list's file name at the library root.
 const languageListFile = '.languages.json';
 

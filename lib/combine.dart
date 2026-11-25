@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import 'job.dart';
+import 'languages.dart';
 import 'library.dart';
 import 'media_tools.dart';
 import 'notes.dart';
@@ -19,13 +20,14 @@ class CombinePart {
     required this.duration,
     required this.lang,
     required this.transcript,
-    required this.translation,
+    this.translations = const {},
     this.furigana,
     required this.names,
     required this.overrides,
     required this.hasSummary,
     required this.extractedAudio,
     this.notes = const [],
+    this.context = '',
   });
 
   factory CombinePart.load(Library library, File file, double duration) {
@@ -40,13 +42,19 @@ class CombinePart {
       duration: duration,
       lang: library.langOf(file),
       transcript: cues(Sidecar.transcriptSrt),
-      translation: cues(Sidecar.translation),
+      translations: {
+        for (final lang in library.translationLangs(file))
+          lang: parseSrt(
+            library.translationFile(file, lang).readAsStringSync(),
+          ),
+      },
       furigana: cues(Sidecar.furigana),
       names: library.readStringMap(file, Sidecar.speakers),
       overrides: library.readStringMap(file, Sidecar.overrides),
-      hasSummary: library.sidecarFile(file, Sidecar.summary).existsSync(),
+      hasSummary: library.summaryLangs(file).isNotEmpty,
       extractedAudio: audio.existsSync() ? audio : null,
       notes: readNotes(library, file),
+      context: library.contextOf(file),
     );
   }
 
@@ -54,14 +62,21 @@ class CombinePart {
   final double duration;
   final String lang;
   final List<Cue>? transcript;
-  final List<Cue>? translation;
+
+  /// The translations by language, English first.
+  final Map<String, List<Cue>> translations;
 
   /// The transcript with readings, when it has them.
   final List<Cue>? furigana;
   final Map<String, String> names;
   final Map<String, String> overrides;
+
+  /// Whether it has a summary in any language.
   final bool hasSummary;
   final List<Note> notes;
+
+  /// The user's note about the recording for the model, or empty.
+  final String context;
 
   /// The audio extracted from a video, if it has been transcribed.
   final File? extractedAudio;
@@ -142,18 +157,65 @@ List<String> combineProblems(List<CombinePart> parts) {
 bool hasTranscripts(List<CombinePart> parts) =>
     parts.every((part) => part.transcript != null);
 
-/// The parts whose missing translation keeps the translation from being
-/// merged. Empty when every part has one, or none does.
-List<String> partsMissingTranslation(List<CombinePart> parts) {
-  final missing = [
-    for (final part in parts)
-      if (part.translation == null) part.name,
-  ];
-  return missing.length == parts.length ? const [] : missing;
+/// The languages any of [parts] is translated into, English first, then by
+/// code.
+List<String> _translationLangs(List<CombinePart> parts) {
+  final langs = {for (final part in parts) ...part.translations.keys}.toList()
+    ..sort((a, b) {
+      if (a == englishLang) return -1;
+      if (b == englishLang) return 1;
+      return a.compareTo(b);
+    });
+  return langs;
 }
 
-bool mergesTranslation(List<CombinePart> parts) =>
-    hasTranscripts(parts) && parts.every((part) => part.translation != null);
+/// For each language some but not all of [parts] are translated into, the
+/// parts that lack it, so that translation is not merged.
+Map<String, List<String>> partsMissingTranslations(List<CombinePart> parts) {
+  return {
+    for (final lang in _translationLangs(parts))
+      if (!parts.every((part) => part.translations.containsKey(lang)))
+        lang: [
+          for (final part in parts)
+            if (!part.translations.containsKey(lang)) part.name,
+        ],
+  };
+}
+
+/// The languages every part is translated into, so their translations are
+/// merged.
+List<String> mergedTranslationLangs(List<CombinePart> parts) => [
+  if (hasTranscripts(parts))
+    for (final lang in _translationLangs(parts))
+      if (parts.every((part) => part.translations.containsKey(lang))) lang,
+];
+
+/// The parts' translations into [lang] as one, as [mergeCues] merges them.
+List<Cue> mergeTranslation(
+  List<CombinePart> parts,
+  SpeakerMapping mapping,
+  String lang,
+) => mergeCues(parts, mapping, from: (part) => part.translations[lang]);
+
+/// The parts' notes about themselves for the model, each one once, as one
+/// note.
+String joinedContext(List<CombinePart> parts) => {
+  for (final part in parts)
+    if (part.context.isNotEmpty) part.context,
+}.join('\n\n');
+
+/// [codes] as "the English and Japanese translations", with [nameOf] giving
+/// each language's name.
+String translationsPhrase(
+  List<String> codes,
+  String Function(String code) nameOf,
+) {
+  final names = [for (final code in codes) nameOf(code)];
+  final listed = names.length < 2
+      ? names.join()
+      : '${names.take(names.length - 1).join(', ')} and ${names.last}';
+  return 'the $listed ${codes.length == 1 ? 'translation' : 'translations'}';
+}
 
 /// Whether every part has readings, so the combined transcript keeps them.
 bool mergesFurigana(List<CombinePart> parts) =>
@@ -290,12 +352,14 @@ String _speakerLabel(Map<String, String> names, String id) =>
     names[id] ?? 'Speaker $id';
 
 /// A plain account of what combining [parts] into [outputStem] will do, one
-/// statement per entry.
+/// statement per entry. [languageName] gives a language's name from its
+/// code.
 List<String> describeCombination(
   List<CombinePart> parts,
   SpeakerMapping mapping,
-  String outputStem,
-) {
+  String outputStem, {
+  required String Function(String code) languageName,
+}) {
   final lines = <String>[];
   final ext = p.extension(parts.first.file.path);
   final offsets = partOffsets(parts);
@@ -310,17 +374,23 @@ List<String> describeCombination(
       'The transcripts are merged into one, with each part\'s timestamps '
       'shifted to where it starts.',
     );
-    if (parts.first.lang != 'en') {
-      final missing = partsMissingTranslation(parts);
-      if (mergesTranslation(parts)) {
-        lines.add('The translations are merged the same way.');
-      } else if (missing.isNotEmpty) {
-        lines.add(
-          'The translation is left out, because ${missing.join(', ')} '
-          '${missing.length == 1 ? 'has' : 'have'} none. Translate the '
-          'combined recording afterwards.',
-        );
-      }
+    final merged = mergedTranslationLangs(parts);
+    if (merged.isNotEmpty) {
+      final what = translationsPhrase(merged, languageName);
+      lines.add(
+        '${what[0].toUpperCase()}${what.substring(1)} '
+        '${merged.length == 1 ? 'is' : 'are'} merged the same way.',
+      );
+    }
+    for (final MapEntry(key: lang, value: missing) in partsMissingTranslations(
+      parts,
+    ).entries) {
+      final what = translationsPhrase([lang], languageName);
+      lines.add(
+        '${what[0].toUpperCase()}${what.substring(1)} is left out, because '
+        '${missing.join(', ')} ${missing.length == 1 ? 'has' : 'have'} none. '
+        'Translate the combined recording afterwards.',
+      );
     }
     final names = combinedSpeakerNames(parts, mapping);
     final sources = <String, List<String>>{};
@@ -349,6 +419,9 @@ List<String> describeCombination(
       'moved to ${noteCount == 1 ? 'its' : 'their'} new '
       '${noteCount == 1 ? 'time' : 'times'}.',
     );
+  }
+  if (parts.any((part) => part.context.isNotEmpty)) {
+    lines.add('The context you wrote for the recordings is joined into one.');
   }
   final summaries = parts.where((part) => part.hasSummary).length;
   if (summaries > 0) {
@@ -423,9 +496,11 @@ class CombineJob extends Job {
       final transcript = transcripts
           ? formatSrt(mergeCues(parts, mapping))
           : null;
-      final translation = mergesTranslation(parts)
-          ? formatSrt(mergeCues(parts, mapping, from: (p) => p.translation))
-          : null;
+      final translations = {
+        for (final lang in mergedTranslationLangs(parts))
+          lang: formatSrt(mergeTranslation(parts, mapping, lang)),
+      };
+      final context = joinedContext(parts);
       final furigana = mergesFurigana(parts)
           ? formatSrt(mergeCues(parts, mapping, from: (p) => p.furigana))
           : null;
@@ -457,7 +532,10 @@ class CombineJob extends Job {
         write(Sidecar.transcriptTxt, srtToPlaintext(transcript));
         write(Sidecar.lang, '${parts.first.lang}\n');
       }
-      if (translation != null) write(Sidecar.translation, translation);
+      for (final MapEntry(key: lang, value: srt) in translations.entries) {
+        library.translationFile(target, lang).writeAsStringSync(srt);
+      }
+      library.writeContext(target, context);
       if (furigana != null) write(Sidecar.furigana, furigana);
       if (names.isNotEmpty) {
         write(

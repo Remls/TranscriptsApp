@@ -209,6 +209,8 @@ class _CombineScreenState extends State<CombineScreen> {
               parts,
               mapping,
               _name.text.trim(),
+              languageName: (code) =>
+                  widget.session.languages.resolve(code).name,
             ))
               BulletLine(line),
             Padding(

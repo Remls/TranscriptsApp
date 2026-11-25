@@ -218,7 +218,9 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
     });
   }
 
-  void _onLineLongPress(Sidecar source, int cue, int item) {
+  /// Opens the actions for a line of the transcript, or of the translation
+  /// into [translation] when given.
+  void _onLineLongPress(int cue, int item, {String? translation}) {
     if (_selection != null) {
       _toggleLine(cue, item);
       return;
@@ -226,7 +228,7 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
     showLineActions(
       context,
       _session,
-      source: source,
+      translation: translation,
       cue: cue,
       item: item,
       onSelect: () => setState(() => _selection = {(cue, item)}),
@@ -349,6 +351,9 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
       await _session.player.seek(position);
     } else {
       await _session.open(recording, position: position);
+    }
+    if (hit.source == HitSource.translation) {
+      _session.showTranslation(hit.lang);
     }
     if (!mounted) return;
     final tabs = _tabsFor(recording);
@@ -892,8 +897,7 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
       speakerOverrides: _session.speakerOverrides,
       activeIndex: _session.activeIndex,
       onSeek: _session.seekAndPlay,
-      onLineLongPress: (cue, item) =>
-          _onLineLongPress(Sidecar.transcriptSrt, cue, item),
+      onLineLongPress: (cue, item) => _onLineLongPress(cue, item),
       selected: _selection,
       onLineTap: _toggleLine,
     );
@@ -908,13 +912,13 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
       noteImage: _session.noteImageOf,
       onPictureTap: (picture) => showPicture(context, picture),
       onNoteTap: (note) => editNote(context, _session, existing: note),
-      language: _session.languages.resolve('en'),
+      language: _session.languages.resolve(_session.translationLang),
       speakerNames: _session.speakerNames,
       speakerOverrides: _session.speakerOverrides,
       activeIndex: _session.translationActiveIndex,
       onSeek: _session.seekAndPlay,
       onLineLongPress: (cue, item) =>
-          _onLineLongPress(Sidecar.translation, cue, item),
+          _onLineLongPress(cue, item, translation: _session.translationLang),
       selected: _selection,
       onLineTap: _toggleLine,
     );

@@ -39,8 +39,8 @@ class LibraryHit {
   /// slashes.
   final String relPath;
 
-  /// The language of [text]: the recording's for a transcript line, English
-  /// for a translation line or a note.
+  /// The language of [text]: the recording's for a transcript line, the
+  /// translation's for a translation line, English for a note.
   final String lang;
   final HitSource source;
 
@@ -94,8 +94,7 @@ List<LibraryHit> _searchRecording(
   String query,
 ) {
   final hits = <LibraryHit>[];
-  void searchCues(Sidecar key, HitSource source, String lang) {
-    final file = library.sidecarFile(recording.file, key);
+  void searchCues(File file, HitSource source, String lang) {
     if (!file.existsSync()) return;
     final cues = parseSrt(file.readAsStringSync());
     for (final m in findMatches(transcriptRows(cues, const []), cues, query)) {
@@ -117,8 +116,18 @@ List<LibraryHit> _searchRecording(
     }
   }
 
-  searchCues(Sidecar.transcriptSrt, HitSource.transcript, recording.lang);
-  searchCues(Sidecar.translation, HitSource.translation, 'en');
+  searchCues(
+    library.sidecarFile(recording.file, Sidecar.transcriptSrt),
+    HitSource.transcript,
+    recording.lang,
+  );
+  for (final lang in recording.translations) {
+    searchCues(
+      library.translationFile(recording.file, lang),
+      HitSource.translation,
+      lang,
+    );
+  }
   final notes = readNotes(library, recording.file);
   final rows = transcriptRows(const [], notes);
   for (final m in findMatches(rows, const [], query)) {

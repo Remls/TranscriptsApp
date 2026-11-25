@@ -97,10 +97,17 @@ class Session extends ChangeNotifier {
 
   Recording? recording;
   List<Cue> cues = const [];
+
+  /// The language shown on the Translation and Summary tabs.
+  String translationLang = englishLang;
+
+  /// The open recording's translation into [translationLang].
   List<Cue> translatedCues = const [];
 
   /// The transcript with readings above its kanji, or empty when it has none.
   List<Cue> furiganaCues = const [];
+
+  /// The open recording's summary in [translationLang].
   String? summary;
   List<Note> notes = const [];
   Map<String, String> speakerNames = const {};
@@ -131,6 +138,7 @@ class Session extends ChangeNotifier {
 
   Future<void> open(Recording r, {Duration position = Duration.zero}) async {
     recording = r;
+    translationLang = _firstTranslationLang(r);
     _loadSidecars();
     activeIndex.value = -1;
     translationActiveIndex.value = -1;
@@ -177,12 +185,33 @@ class Session extends ChangeNotifier {
     }
   }
 
+  /// The language [r] opens on: the preferred one when [r] has it or has
+  /// nothing translated or summarized, else the first it has.
+  String _firstTranslationLang(Recording r) {
+    final preferred = settings.translateLang;
+    final available = {...r.translations, ...r.summaries};
+    return available.isEmpty || available.contains(preferred)
+        ? preferred
+        : available.first;
+  }
+
+  /// Shows the translation and summary in [lang].
+  void showTranslation(String lang) {
+    if (lang == translationLang) return;
+    translationLang = lang;
+    _loadSidecars();
+    notifyListeners();
+  }
+
   void _loadSidecars() {
     final file = recording!.file;
     cues = _readCues(file, Sidecar.transcriptSrt);
-    translatedCues = _readCues(file, Sidecar.translation);
+    final translation = library.translationFile(file, translationLang);
+    translatedCues = translation.existsSync()
+        ? parseSrt(translation.readAsStringSync())
+        : const [];
     furiganaCues = _readCues(file, Sidecar.furigana);
-    final summaryFile = library.sidecarFile(file, Sidecar.summary);
+    final summaryFile = library.summaryFile(file, translationLang);
     summary = summaryFile.existsSync() ? summaryFile.readAsStringSync() : null;
     speakerNames = library.readStringMap(file, Sidecar.speakers);
     speakerOverrides = library.readStringMap(file, Sidecar.overrides);

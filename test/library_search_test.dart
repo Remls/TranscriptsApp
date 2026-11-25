@@ -31,6 +31,10 @@ void main() {
       '1\n00:00:01,000 --> 00:00:04,000\nThe budget\n',
     );
     touch(
+      'set/.a/translation.ja.srt',
+      '1\n00:00:01,000 --> 00:00:04,000\nbudget の話\n',
+    );
+    touch(
       'set/.a/notes.json',
       '[{"id": "n1", "time": 7.5, "text": "check the budget"}]',
     );
@@ -57,6 +61,7 @@ void main() {
         ('set/a.mp3', HitSource.transcript, 1.0, 0, 0, null, 'dv'),
         ('set/a.mp3', HitSource.transcript, 10.0, 1, 1, null, 'dv'),
         ('set/a.mp3', HitSource.translation, 1.0, 0, 0, null, 'en'),
+        ('set/a.mp3', HitSource.translation, 1.0, 0, 0, null, 'ja'),
         ('set/a.mp3', HitSource.note, 7.5, null, null, 'n1', 'en'),
         ('loose.m4a', HitSource.transcript, 2.0, 0, 0, null, 'dv'),
       ],
@@ -70,7 +75,7 @@ void main() {
     final result = searchLibrary(root.path, 'budget', limit: 3);
     expect(result.hits.length, 3);
     expect(result.capped, isTrue);
-    expect(searchLibrary(root.path, 'budget', limit: 5).capped, isFalse);
+    expect(searchLibrary(root.path, 'budget', limit: 6).capped, isFalse);
   });
 
   test('snippets keep the match and mark cut ends', () {

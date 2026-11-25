@@ -71,15 +71,16 @@ String nextSpeakerId(Iterable<String> existing) {
   return '${highest + 1}';
 }
 
-/// Edits to a recording's stored transcript, translation and speaker files.
+/// Edits to a recording's stored transcript, translations and speaker files.
 class TranscriptEditor {
   TranscriptEditor(this.library, this.recording);
 
   final Library library;
   final File recording;
 
-  List<Cue> _cues(Sidecar key) =>
-      parseSrt(library.sidecarFile(recording, key).readAsStringSync());
+  List<Cue> _cues(Sidecar key) => _read(library.sidecarFile(recording, key));
+
+  List<Cue> _read(File srt) => parseSrt(srt.readAsStringSync());
 
   void _writeMap(Sidecar key, Map<String, String> map) {
     final file = library.sidecarFile(recording, key);
@@ -91,18 +92,21 @@ class TranscriptEditor {
     file.writeAsStringSync(const JsonEncoder.withIndent('  ').convert(map));
   }
 
-  /// Replaces the text of line [item] of cue [cue] in the SRT stored as
-  /// [key]. Editing the transcript also refreshes its plain-text copy, and
-  /// the line loses its readings.
-  void setText(Sidecar key, int cue, int item, String rawText) {
+  /// Replaces the text of line [item] of cue [cue] in the transcript, or in
+  /// the translation into [translation] when given. Editing the transcript
+  /// also refreshes its plain-text copy, and the line loses its readings.
+  void setText(int cue, int item, String rawText, {String? translation}) {
     final text = rawText.replaceAll(RegExp(r'\s*\n\s*'), ' ').trim();
     if (text.isEmpty) throw const LibraryException('Enter some text');
-    final cues = _cues(key);
+    final file = translation == null
+        ? library.sidecarFile(recording, Sidecar.transcriptSrt)
+        : library.translationFile(recording, translation);
+    final cues = _read(file);
     final items = cues[cue].items;
     items[item] = CueItem(items[item].speaker, text);
     final srt = formatSrt(cues);
-    library.sidecarFile(recording, key).writeAsStringSync(srt);
-    if (key == Sidecar.transcriptSrt) {
+    file.writeAsStringSync(srt);
+    if (translation == null) {
       library
           .sidecarFile(recording, Sidecar.transcriptTxt)
           .writeAsStringSync(srtToPlaintext(srt));
@@ -191,9 +195,9 @@ class TranscriptEditor {
   /// Drops every manual speaker change, back to the transcript's own labels.
   void resetSpeakerChanges() => _writeMap(Sidecar.overrides, {});
 
-  /// Removes [lines], each a (cue, item) pair, from the transcript, the
-  /// translation and the readings. A cue left with no lines is removed. Manual speaker
-  /// changes move with the lines that remain.
+  /// Removes [lines], each a (cue, item) pair, from the transcript, every
+  /// translation and the readings. A cue left with no lines is removed.
+  /// Manual speaker changes move with the lines that remain.
   void deleteLines(Iterable<(int, int)> lines) {
     final doomed = lines.toSet();
     if (doomed.isEmpty) return;
@@ -209,10 +213,13 @@ class TranscriptEditor {
         .sidecarFile(recording, Sidecar.transcriptTxt)
         .writeAsStringSync(srtToPlaintext(srt));
 
-    for (final key in [Sidecar.translation, Sidecar.furigana]) {
-      final file = library.sidecarFile(recording, key);
+    for (final file in [
+      for (final lang in library.translationLangs(recording))
+        library.translationFile(recording, lang),
+      library.sidecarFile(recording, Sidecar.furigana),
+    ]) {
       if (!file.existsSync()) continue;
-      final (cues, _) = _withoutLines(_cues(key), doomed);
+      final (cues, _) = _withoutLines(_read(file), doomed);
       file.writeAsStringSync(formatSrt(cues));
     }
 

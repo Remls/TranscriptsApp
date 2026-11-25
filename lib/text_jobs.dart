@@ -12,17 +12,17 @@ import 'srt.dart';
 import 'text_generator.dart';
 import 'transcription_job.dart';
 
-/// The cue text of a recording's [source] SRT as "Name: text" lines, with
-/// speaker overrides and custom names applied. [notes] are placed between
-/// the lines at their times. Null when the file does not exist.
+/// The cue text of [srt], one of [recording]'s SRT files, as "Name: text"
+/// lines, with speaker overrides and custom names applied. [notes] are
+/// placed between the lines at their times. Null when the file does not
+/// exist.
 String? speakerLines(
   Library library,
   File recording,
-  Sidecar source, {
+  File srt, {
   List<Note> notes = const [],
   Map<String, int> pictureNumbers = const {},
 }) {
-  final srt = library.sidecarFile(recording, source);
   if (!srt.existsSync()) return null;
   final cues = parseSrt(srt.readAsStringSync());
   final overrides = library.readStringMap(recording, Sidecar.overrides);
@@ -47,6 +47,13 @@ String? speakerLines(
   return lines.join('\n');
 }
 
+/// [recording]'s text in [lang]: the transcript when the recording is in
+/// [lang], else its translation into [lang].
+File textIn(Library library, File recording, String lang) =>
+    library.langOf(recording) == lang
+    ? library.sidecarFile(recording, Sidecar.transcriptSrt)
+    : library.translationFile(recording, lang);
+
 /// The English transcript as speaker lines with the user's notes in place,
 /// as given to the summarizer. Reads the translation, or the transcript
 /// itself for an English recording. Null when that file does not exist.
@@ -54,9 +61,7 @@ String? translatedTranscriptText(Library library, File recording) {
   return speakerLines(
     library,
     recording,
-    library.langOf(recording) == 'en'
-        ? Sidecar.transcriptSrt
-        : Sidecar.translation,
+    textIn(library, recording, englishLang),
     notes: readNotes(library, recording),
   );
 }
@@ -95,9 +100,7 @@ SummaryInput? summaryInput(Library library, File recording) {
   final text = speakerLines(
     library,
     recording,
-    library.langOf(recording) == 'en'
-        ? Sidecar.transcriptSrt
-        : Sidecar.translation,
+    textIn(library, recording, englishLang),
     notes: notes,
     pictureNumbers: numbers,
   );
@@ -163,7 +166,7 @@ Future<void> translateRecording(
     input: srt.readAsStringSync(),
   );
   library
-      .sidecarFile(recording, Sidecar.translation)
+      .translationFile(recording, englishLang)
       .writeAsStringSync('${stripCodeFence(out)}\n');
 }
 
@@ -193,7 +196,7 @@ Future<void> summarizeRecording(
     input: input.text,
     images: input.images,
   );
-  library.sidecarFile(recording, Sidecar.summary).writeAsStringSync('$out\n');
+  library.summaryFile(recording, englishLang).writeAsStringSync('$out\n');
 }
 
 class TranslationJob extends Job {
@@ -315,8 +318,7 @@ class FolderSummaryJob extends Job {
     }
 
     for (final (i, file) in sources.indexed) {
-      if (library.langOf(file) == 'en' ||
-          library.sidecarFile(file, Sidecar.translation).existsSync()) {
+      if (textIn(library, file, englishLang).existsSync()) {
         continue;
       }
       setStatus('Translating ${label(i, file)}');
@@ -325,7 +327,7 @@ class FolderSummaryJob extends Job {
 
     if (mode == FolderSummaryMode.hierarchical) {
       for (final (i, file) in sources.indexed) {
-        if (library.sidecarFile(file, Sidecar.summary).existsSync()) continue;
+        if (library.summaryFile(file, englishLang).existsSync()) continue;
         setStatus('Summarizing ${label(i, file)}');
         await summarizeRecording(this, library, file, generator);
       }
@@ -351,10 +353,7 @@ class FolderSummaryJob extends Job {
 
   String _content(File file) {
     if (mode == FolderSummaryMode.hierarchical) {
-      return library
-          .sidecarFile(file, Sidecar.summary)
-          .readAsStringSync()
-          .trim();
+      return library.summaryFile(file, englishLang).readAsStringSync().trim();
     }
     return translatedTranscriptText(library, file) ?? '';
   }

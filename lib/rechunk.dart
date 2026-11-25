@@ -73,9 +73,10 @@ class SplitCarry {
   SplitCarry._({
     required this.problems,
     required this.transcript,
-    required this.translation,
+    required this.translations,
     required this.furigana,
-    required this.missingTranslation,
+    required this.missingTranslations,
+    required this.context,
     required this.notes,
     required this.names,
     required this.lang,
@@ -92,15 +93,18 @@ class SplitCarry {
     return SplitCarry._(
       problems: problems,
       transcript: transcribed ? mergeCues(parts, mapping) : null,
-      translation: ok && mergesTranslation(parts)
-          ? mergeCues(parts, mapping, from: (p) => p.translation)
-          : null,
+      translations: {
+        if (ok)
+          for (final lang in mergedTranslationLangs(parts))
+            lang: mergeTranslation(parts, mapping, lang),
+      },
       furigana: ok && mergesFurigana(parts)
           ? mergeCues(parts, mapping, from: (p) => p.furigana)
           : null,
-      missingTranslation: transcribed && parts.first.lang != 'en'
-          ? partsMissingTranslation(parts)
-          : const [],
+      missingTranslations: transcribed
+          ? partsMissingTranslations(parts)
+          : const {},
+      context: joinedContext(parts),
       notes: mergeNotes(parts),
       names: transcribed ? combinedSpeakerNames(parts, mapping) : const {},
       lang: parts.first.lang,
@@ -112,13 +116,18 @@ class SplitCarry {
   /// The reasons the family cannot be joined. Empty when it can.
   final List<String> problems;
   final List<Cue>? transcript;
-  final List<Cue>? translation;
+
+  /// The translations by language, English first.
+  final Map<String, List<Cue>> translations;
 
   /// The transcript with readings, when every recording has them.
   final List<Cue>? furigana;
 
-  /// The recordings whose missing translation keeps it from being carried.
-  final List<String> missingTranslation;
+  /// For each translation that is not carried, the recordings that lack it.
+  final Map<String, List<String>> missingTranslations;
+
+  /// The recordings' notes about themselves for the model, joined.
+  final String context;
   final List<Note> notes;
   final Map<String, String> names;
   final String lang;
@@ -152,6 +161,7 @@ String _listed(List<String> items) => items.length < 2
 
 /// A plain account of what splitting will do, one statement per entry.
 /// [members] are the family's recordings with their lengths in seconds.
+/// [languageName] gives a language's name from its code.
 List<String> describeSplit(
   List<(String, double)> members,
   String base,
@@ -159,6 +169,7 @@ List<String> describeSplit(
   double target,
   double max, {
   required SplitCarry carry,
+  required String Function(String code) languageName,
 }) {
   final total = members.fold(0.0, (sum, m) => sum + m.$2);
   final count = planChunkCount(total, target, max);
@@ -187,7 +198,8 @@ List<String> describeSplit(
   final notes = carry.notes.length;
   final carried = [
     if (carry.transcript != null) 'the transcript',
-    if (carry.translation != null) 'the translation',
+    if (carry.translations.isNotEmpty)
+      translationsPhrase(carry.translations.keys.toList(), languageName),
     if (notes > 0) 'your $notes ${notes == 1 ? 'note' : 'notes'}',
   ];
   if (carried.isNotEmpty) {
@@ -200,12 +212,16 @@ List<String> describeSplit(
       'starts.',
     );
   }
-  if (carry.missingTranslation.isNotEmpty) {
+  for (final MapEntry(key: lang, value: missing)
+      in carry.missingTranslations.entries) {
+    final what = translationsPhrase([lang], languageName);
     lines.add(
-      'The translation is left out, because '
-      '${carry.missingTranslation.join(', ')} '
-      '${carry.missingTranslation.length == 1 ? 'has' : 'have'} none.',
+      '${what[0].toUpperCase()}${what.substring(1)} is left out, because '
+      '${missing.join(', ')} ${missing.length == 1 ? 'has' : 'have'} none.',
     );
+  }
+  if (carry.context.isNotEmpty) {
+    lines.add('Each chunk keeps the context you wrote for the recording.');
   }
   if (carry.summaries > 0) {
     lines.add(
@@ -368,10 +384,15 @@ class RechunkJob extends Job {
         );
       }
     }
-    final translation = cuesBetween(carry.translation ?? const [], start, end);
-    if (translation.isNotEmpty) {
-      write(Sidecar.translation, formatSrt(translation));
+    for (final MapEntry(key: lang, value: cues) in carry.translations.entries) {
+      final translation = cuesBetween(cues, start, end);
+      if (translation.isNotEmpty) {
+        library
+            .translationFile(chunk, lang)
+            .writeAsStringSync(formatSrt(translation));
+      }
     }
+    library.writeContext(chunk, carry.context);
     final furigana = cuesBetween(carry.furigana ?? const [], start, end);
     if (furigana.isNotEmpty) write(Sidecar.furigana, formatSrt(furigana));
     final notes = notesBetween(carry.notes, start, end);

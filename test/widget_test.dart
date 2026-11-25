@@ -19,8 +19,8 @@ Recording _recording(String relPath, {bool hasTranscript = false}) {
     relPath: relPath,
     lang: 'en',
     hasTranscript: hasTranscript,
-    hasTranslation: false,
-    hasSummary: false,
+    translations: const [],
+    summaries: const [],
   );
 }
 

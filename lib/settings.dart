@@ -39,6 +39,7 @@ const _anthropicModelPref = 'anthropicModel';
 const _textProviderPref = 'textProvider';
 const _themePref = 'theme';
 const _transcribeLangPref = 'transcribeLang';
+const _translateLangPref = 'translateLang';
 const _wallpaperColorsPref = 'wallpaperColors';
 const _readingsPref = 'readings';
 
@@ -94,6 +95,11 @@ class Settings extends ChangeNotifier {
   String get transcribeLang =>
       _prefs.getString(_transcribeLangPref) ?? defaultLang;
 
+  /// The code of the language preselected for new translations and
+  /// summaries.
+  String get translateLang =>
+      _prefs.getString(_translateLangPref) ?? englishLang;
+
   /// Whether the theme takes its colors from the system wallpaper.
   bool get wallpaperColors => _prefs.getBool(_wallpaperColorsPref) ?? true;
 
@@ -134,6 +140,9 @@ class Settings extends ChangeNotifier {
 
   Future<void> setTranscribeLang(String code) =>
       _setPref(_transcribeLangPref, code);
+
+  Future<void> setTranslateLang(String code) =>
+      _setPref(_translateLangPref, code);
 
   Future<void> _setPref(String key, String value) async {
     await _prefs.setString(key, value);

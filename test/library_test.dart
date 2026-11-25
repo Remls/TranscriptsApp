@@ -127,4 +127,28 @@ void main() {
     library.writeContext(rec, '');
     expect(file.existsSync(), isFalse);
   });
+
+  test('translations and summaries are found by language', () {
+    final rec = touch('a.mp3');
+    expect(library.translationLangs(rec), isEmpty);
+    touch('.a/translation.ja.srt');
+    touch('.a/translation.srt');
+    touch('.a/translation.dv.srt');
+    touch('.a/translation.x.srt');
+    touch('.a/summary.ko.md');
+    expect(library.translationLangs(rec), ['en', 'dv', 'ja']);
+    expect(library.summaryLangs(rec), ['ko']);
+    expect(
+      library.translationFile(rec, 'en').path,
+      p.join(root.path, '.a', 'translation.srt'),
+    );
+    expect(
+      library.summaryFile(rec, 'ko').path,
+      p.join(root.path, '.a', 'summary.ko.md'),
+    );
+    final described = library.describe(rec);
+    expect(described.translations, ['en', 'dv', 'ja']);
+    expect(described.summaries, ['ko']);
+    expect(described.languages, {'dv', 'en', 'ja', 'ko'});
+  });
 }

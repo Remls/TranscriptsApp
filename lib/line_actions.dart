@@ -43,24 +43,23 @@ enum _LineAction {
   delete,
 }
 
-/// The actions for line [item] of cue [cue] in the transcript or translation
-/// shown from [source]. [onSelect] starts selecting lines with this one.
+/// The actions for line [item] of cue [cue] in the transcript, or in the
+/// translation into [translation] when given. [onSelect] starts selecting
+/// lines with this one.
 Future<void> showLineActions(
   BuildContext context,
   Session session, {
-  required Sidecar source,
+  String? translation,
   required int cue,
   required int item,
   required VoidCallback onSelect,
 }) async {
-  final cues = source == Sidecar.translation
-      ? session.translatedCues
-      : session.cues;
+  final cues = translation == null ? session.cues : session.translatedCues;
   final line = cues[cue].items[item];
   final speaker = effectiveSpeaker(cues, session.speakerOverrides, cue, item);
-  final rtl =
-      source != Sidecar.translation &&
-      session.languages.resolve(session.recording!.lang).rtl;
+  final rtl = session.languages
+      .resolve(translation ?? session.recording!.lang)
+      .rtl;
   final action = await showModalBottomSheet<_LineAction>(
     context: context,
     showDragHandle: true,
@@ -119,7 +118,7 @@ Future<void> showLineActions(
     case _LineAction.select:
       onSelect();
     case _LineAction.editText:
-      await _editText(context, session, source, cue, item, line.text);
+      await _editText(context, session, translation, cue, item, line.text);
     case _LineAction.changeSpeaker:
       final picked = await _pickSpeaker(
         context,
@@ -159,7 +158,7 @@ Future<bool> changeSpeakerOf(
   return true;
 }
 
-/// Deletes [lines], each a (cue, item) pair, from the transcript and the
+/// Deletes [lines], each a (cue, item) pair, from the transcript and every
 /// translation after asking. Resolves to whether they were deleted.
 Future<bool> deleteLines(
   BuildContext context,
@@ -167,13 +166,20 @@ Future<bool> deleteLines(
   List<(int, int)> lines,
 ) async {
   final count = lines.length;
+  final translations = session.recording!.translations.length;
+  final matching = count == 1 ? 'line is' : 'lines are';
   final ok = await _confirm(
     context,
     count == 1 ? 'Delete line' : 'Delete $count lines',
-    session.translatedCues.isEmpty
-        ? 'This cannot be undone.'
-        : 'The matching translation ${count == 1 ? 'line is' : 'lines are'} '
-              'deleted too. This cannot be undone.',
+    switch (translations) {
+      0 => 'This cannot be undone.',
+      1 =>
+        'The matching translation $matching deleted too. '
+            'This cannot be undone.',
+      _ =>
+        'The matching $matching deleted from all $translations translations '
+            'too. This cannot be undone.',
+    },
   );
   if (!ok || !context.mounted) return false;
   _edit(context, session, (e) => e.deleteLines(lines));
@@ -246,16 +252,17 @@ Future<void> _changeSpeaker(
 Future<void> _editText(
   BuildContext context,
   Session session,
-  Sidecar source,
+  String? translation,
   int cue,
   int item,
   String current,
 ) async {
-  final lang = source == Sidecar.translation ? 'en' : session.recording!.lang;
-  final rtl = session.languages.resolve(lang).rtl;
+  final rtl = session.languages
+      .resolve(translation ?? session.recording!.lang)
+      .rtl;
   final readings = session.furiganaCues;
   final hasReadings =
-      source == Sidecar.transcriptSrt &&
+      translation == null &&
       cue < readings.length &&
       item < readings[cue].items.length &&
       withReadings(current, readings[cue].items[item].text) != null;
@@ -290,7 +297,11 @@ Future<void> _editText(
     ),
   );
   if (text == null || text == current || !context.mounted) return;
-  _edit(context, session, (e) => e.setText(source, cue, item, text));
+  _edit(
+    context,
+    session,
+    (e) => e.setText(cue, item, text, translation: translation),
+  );
 }
 
 /// Asks for a name for [speaker] in the open recording.

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import 'languages.dart';
 import 'library.dart';
 import 'text_jobs.dart';
 
@@ -62,20 +63,20 @@ const _srtMimeType = 'application/x-subrip';
 
 /// The parts of [recording] that exist, in menu order.
 List<SharePart> availableShareParts(Library library, File recording) {
-  bool has(Sidecar key) => library.sidecarFile(recording, key).existsSync();
+  bool has(File file) => file.existsSync();
   return [
     SharePart.recording,
-    if (has(Sidecar.transcriptSrt)) ...[
+    if (has(library.sidecarFile(recording, Sidecar.transcriptSrt))) ...[
       SharePart.transcriptSrt,
       SharePart.transcriptText,
       SharePart.transcriptPlain,
     ],
-    if (has(Sidecar.translation)) ...[
+    if (has(library.translationFile(recording, englishLang))) ...[
       SharePart.translationSrt,
       SharePart.translationText,
       SharePart.translationPlain,
     ],
-    if (has(Sidecar.summary)) ...[
+    if (has(library.summaryFile(recording, englishLang))) ...[
       SharePart.summaryText,
       SharePart.summaryPlain,
     ],
@@ -99,19 +100,18 @@ SharePayload buildSharePayload(
     return File(p.join(tempDir.path, fileName))..writeAsStringSync(content);
   }
 
-  SharePayload srt(Sidecar key, String suffix) => SharePayload.file(
-    temp(
-      '$name$suffix.srt',
-      library.sidecarFile(recording, key).readAsStringSync(),
-    ),
+  final transcript = library.sidecarFile(recording, Sidecar.transcriptSrt);
+  final translation = library.translationFile(recording, englishLang);
+  SharePayload srt(File file, String suffix) => SharePayload.file(
+    temp('$name$suffix.srt', file.readAsStringSync()),
     _srtMimeType,
   );
-  SharePayload text(Sidecar key, String suffix) => SharePayload.file(
-    temp('$name$suffix.txt', '${speakerLines(library, recording, key)}\n'),
+  SharePayload text(File file, String suffix) => SharePayload.file(
+    temp('$name$suffix.txt', '${speakerLines(library, recording, file)}\n'),
     'text/plain',
   );
   String summary() =>
-      library.sidecarFile(recording, Sidecar.summary).readAsStringSync().trim();
+      library.summaryFile(recording, englishLang).readAsStringSync().trim();
 
   return switch (part) {
     SharePart.recording => SharePayload.file(
@@ -119,15 +119,15 @@ SharePayload buildSharePayload(
       _mediaMimeTypes[p.extension(recording.path).toLowerCase()] ??
           'application/octet-stream',
     ),
-    SharePart.transcriptSrt => srt(Sidecar.transcriptSrt, ''),
-    SharePart.transcriptText => text(Sidecar.transcriptSrt, ''),
-    SharePart.translationSrt => srt(Sidecar.translation, ' (English)'),
-    SharePart.translationText => text(Sidecar.translation, ' (English)'),
+    SharePart.transcriptSrt => srt(transcript, ''),
+    SharePart.transcriptText => text(transcript, ''),
+    SharePart.translationSrt => srt(translation, ' (English)'),
+    SharePart.translationText => text(translation, ' (English)'),
     SharePart.transcriptPlain => SharePayload.text(
-      speakerLines(library, recording, Sidecar.transcriptSrt)!,
+      speakerLines(library, recording, transcript)!,
     ),
     SharePart.translationPlain => SharePayload.text(
-      speakerLines(library, recording, Sidecar.translation)!,
+      speakerLines(library, recording, translation)!,
     ),
     SharePart.summaryText => SharePayload.file(
       temp('$name (summary).txt', '${summary()}\n'),

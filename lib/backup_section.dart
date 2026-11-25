@@ -198,8 +198,8 @@ class BackupSection extends StatelessWidget {
       children: [
         const Text(
           'A backup is one zip file with every recording, transcript, '
-          'translation and summary, and your language list. The trash, API '
-          'keys and the other settings are left out.',
+          'translation, summary and context note, and your language list. The '
+          'trash, API keys and the other settings are left out.',
         ),
         const SizedBox(height: 12),
         Wrap(

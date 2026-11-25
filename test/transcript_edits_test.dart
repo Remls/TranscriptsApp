@@ -18,6 +18,8 @@ void main() {
   late TranscriptEditor editor;
 
   File sidecar(Sidecar key) => library.sidecarFile(recording, key);
+  File translation([String lang = 'en']) =>
+      library.translationFile(recording, lang);
 
   setUp(() {
     root = Directory.systemTemp.createTempSync('edits_test');
@@ -42,7 +44,7 @@ void main() {
   });
 
   test('setText rewrites one line and the plain-text copy', () {
-    editor.setText(Sidecar.transcriptSrt, 0, 1, '  fixed\n text ');
+    editor.setText(0, 1, '  fixed\n text ');
     expect(
       sidecar(Sidecar.transcriptSrt).readAsStringSync(),
       _srt.replaceFirst('Speaker 2: two', 'Speaker 2: fixed text'),
@@ -52,26 +54,20 @@ void main() {
       'Speaker 1: one\nSpeaker 2: fixed text\nplain line\nSpeaker 1: three\n',
     );
 
-    editor.setText(Sidecar.transcriptSrt, 1, 0, 'still plain');
+    editor.setText(1, 0, 'still plain');
     expect(
       parseSrt(
         sidecar(Sidecar.transcriptSrt).readAsStringSync(),
       )[1].items.single.speaker,
       isNull,
     );
-    expect(
-      () => editor.setText(Sidecar.transcriptSrt, 0, 0, '  '),
-      throwsA(isA<LibraryException>()),
-    );
+    expect(() => editor.setText(0, 0, '  '), throwsA(isA<LibraryException>()));
   });
 
   test('setText on a translation leaves the transcript files alone', () {
-    sidecar(Sidecar.translation).writeAsStringSync(_srt);
-    editor.setText(Sidecar.translation, 2, 0, 'tres');
-    expect(
-      sidecar(Sidecar.translation).readAsStringSync(),
-      contains('Speaker 1: tres'),
-    );
+    translation().writeAsStringSync(_srt);
+    editor.setText(2, 0, 'tres', translation: 'en');
+    expect(translation().readAsStringSync(), contains('Speaker 1: tres'));
     expect(sidecar(Sidecar.transcriptSrt).readAsStringSync(), _srt);
     expect(sidecar(Sidecar.transcriptTxt).existsSync(), isFalse);
   });
@@ -145,23 +141,29 @@ void main() {
     expect(speakerLineCounts(cues, {'0:0': '10'}).keys, ['1', '2', '10']);
   });
 
-  test('deleting lines updates both files and moves speaker changes', () {
-    sidecar(Sidecar.translation).writeAsStringSync(
+  test('deleting lines updates every file and moves speaker changes', () {
+    translation().writeAsStringSync(
       '1\n00:00:01,500 --> 00:00:04,000\nSpeaker 1: uno\nSpeaker 2: dos\n\n'
       '2\n01:02:03,004 --> 01:02:05,000\nplano\n\n'
       '3\n01:02:06,000 --> 01:02:07,000\nSpeaker 1: tres\n',
+    );
+    translation('ja').writeAsStringSync(
+      '1\n00:00:01,500 --> 00:00:04,000\nSpeaker 1: いち\nSpeaker 2: に\n\n'
+      '2\n01:02:03,004 --> 01:02:05,000\nふつう\n\n'
+      '3\n01:02:06,000 --> 01:02:07,000\nSpeaker 1: さん\n',
     );
     editor.setLineSpeaker(0, 1, '3');
     editor.setLineSpeaker(2, 0, '2');
 
     editor.deleteLines([(0, 0), (1, 0)]);
 
-    List<String> lines(Sidecar key) => [
-      for (final cue in parseSrt(sidecar(key).readAsStringSync()))
+    List<String> lines(File file) => [
+      for (final cue in parseSrt(file.readAsStringSync()))
         for (final item in cue.items) item.text,
     ];
-    expect(lines(Sidecar.transcriptSrt), ['two', 'three']);
-    expect(lines(Sidecar.translation), ['dos', 'tres']);
+    expect(lines(sidecar(Sidecar.transcriptSrt)), ['two', 'three']);
+    expect(lines(translation()), ['dos', 'tres']);
+    expect(lines(translation('ja')), ['に', 'さん']);
     expect(sidecar(Sidecar.transcriptTxt).readAsStringSync(), contains('two'));
     expect(
       sidecar(Sidecar.transcriptTxt).readAsStringSync(),
@@ -176,7 +178,7 @@ void main() {
       parseSrt(sidecar(Sidecar.transcriptSrt).readAsStringSync()).length,
       2,
     );
-    expect(sidecar(Sidecar.translation).existsSync(), isFalse);
+    expect(translation().existsSync(), isFalse);
   });
 
   test('several lines can be given to one speaker at once', () {
@@ -195,7 +197,7 @@ void main() {
         for (final item in cue.items) item.text,
     ];
 
-    editor.setText(Sidecar.transcriptSrt, 0, 1, 'changed');
+    editor.setText(0, 1, 'changed');
     expect(lines(), ['｜一《いち》', 'changed', '｜平《たいら》', '｜三《さん》']);
 
     editor.deleteLines([(1, 0)]);

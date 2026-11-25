@@ -99,7 +99,11 @@ void main() {
     );
     expect(hasTextNotes(library, recording), isTrue);
     expect(
-      speakerLines(library, recording, Sidecar.translation),
+      speakerLines(
+        library,
+        recording,
+        library.translationFile(recording, 'en'),
+      ),
       'Host: one\nSpeaker 2: two\nHost: three',
     );
   });

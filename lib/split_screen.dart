@@ -183,6 +183,8 @@ class _SplitScreenState extends State<SplitScreen> {
               targetMin * 60,
               maxMin * 60,
               carry: carry,
+              languageName: (code) =>
+                  widget.session.languages.resolve(code).name,
             ))
               BulletLine(line),
             Padding(
