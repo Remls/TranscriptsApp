@@ -215,16 +215,16 @@ class JobPanel extends StatelessWidget {
             Icon(icon, size: 48, color: scheme.outline),
             const SizedBox(height: 12),
             Text(title, style: theme.textTheme.titleMedium),
+            const SizedBox(height: 16),
+            if (options != null) ...[options!, const SizedBox(height: 16)],
             if (note != null) ...[
-              const SizedBox(height: 8),
               Text(
                 note!,
                 textAlign: .center,
                 style: TextStyle(color: scheme.onSurfaceVariant),
               ),
+              const SizedBox(height: 16),
             ],
-            const SizedBox(height: 16),
-            if (options != null) ...[options!, const SizedBox(height: 16)],
             FilledButton(onPressed: onStart, child: Text(actionLabel)),
             if (ended?.state == JobState.failed) ...[
               const SizedBox(height: 16),

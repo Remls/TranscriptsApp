@@ -79,9 +79,13 @@ class SummaryInput {
   final bool hasNotes;
 }
 
-/// The summary input for [recording] with its notes' pictures attached.
-/// Null when there is no English transcript to summarize.
-SummaryInput? summaryInput(Library library, File recording) {
+/// The summary input for [recording] in [lang] with its notes' pictures
+/// attached. Null when there is no text in [lang] to summarize.
+SummaryInput? summaryInput(
+  Library library,
+  File recording, {
+  String lang = englishLang,
+}) {
   final notes = readNotes(library, recording);
   final numbers = <String, int>{};
   final images = <PromptImage>[];
@@ -101,7 +105,7 @@ SummaryInput? summaryInput(Library library, File recording) {
   final text = speakerLines(
     library,
     recording,
-    textIn(library, recording, englishLang),
+    textIn(library, recording, lang),
     notes: notes,
     pictureNumbers: numbers,
   );
@@ -184,16 +188,20 @@ Future<void> translateRecording(
   }
 }
 
+/// Summarizes [recording] in [lang] from its text in that language.
 Future<void> summarizeRecording(
   Job job,
   Library library,
   File recording,
   TextGenerator generator,
-) async {
-  final input = summaryInput(library, recording);
+  LanguageList languages, {
+  String lang = englishLang,
+}) async {
+  final input = summaryInput(library, recording, lang: lang);
   if (input == null) {
-    throw const JobFailure(
-      'no English translation yet, translate this recording first',
+    throw JobFailure(
+      'no ${languages.resolve(lang).name} translation yet, translate this '
+      'recording first',
     );
   }
   final out = await _generate(
@@ -203,6 +211,7 @@ Future<void> summarizeRecording(
       summaryPromptFor(
         notes: input.hasNotes,
         pictures: input.images.isNotEmpty,
+        language: lang == englishLang ? null : languages.resolve(lang),
       ),
       library,
       recording,
@@ -210,7 +219,7 @@ Future<void> summarizeRecording(
     input: input.text,
     images: input.images,
   );
-  library.summaryFile(recording, englishLang).writeAsStringSync('$out\n');
+  library.summaryFile(recording, lang).writeAsStringSync('$out\n');
 }
 
 class TranslationJob extends Job {
@@ -247,22 +256,47 @@ class TranslationJob extends Job {
   }
 }
 
+/// Summarizes a recording in [lang], translating it into [lang] first when
+/// it has no text in that language.
 class SummaryJob extends Job {
   SummaryJob({
     required this.library,
     required this.recording,
     required this.generator,
+    required this.languages,
+    this.lang = englishLang,
     super.clientFactory,
   });
 
   final Library library;
   final File recording;
   final TextGenerator generator;
+  final LanguageList languages;
+  final String lang;
 
   @override
-  Future<void> perform() {
-    setStatus('Summarizing with ${generator.model}');
-    return summarizeRecording(this, library, recording, generator);
+  Future<void> perform() async {
+    final name = languages.resolve(lang).name;
+    if (!textIn(library, recording, lang).existsSync()) {
+      setStatus('Translating into $name with ${generator.model}');
+      await translateRecording(
+        this,
+        library,
+        recording,
+        generator,
+        languages,
+        to: lang,
+      );
+    }
+    setStatus('Summarizing in $name with ${generator.model}');
+    await summarizeRecording(
+      this,
+      library,
+      recording,
+      generator,
+      languages,
+      lang: lang,
+    );
   }
 }
 
@@ -356,7 +390,7 @@ class FolderSummaryJob extends Job {
       for (final (i, file) in sources.indexed) {
         if (library.summaryFile(file, englishLang).existsSync()) continue;
         setStatus('Summarizing ${label(i, file)}');
-        await summarizeRecording(this, library, file, generator);
+        await summarizeRecording(this, library, file, generator, languages);
       }
     }
 

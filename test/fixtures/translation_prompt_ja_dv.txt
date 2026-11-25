@@ -2,7 +2,7 @@ You are translating an SRT subtitle file to Dhivehi.
 
 The input mixes Japanese (Japanese (kanji + hiragana/katakana) script) and English code-switched speech.
 
-About Dhivehi, the language to translate into:
+About Dhivehi, the language to write in:
 - This audio is in DHIVEHI (also called Maldivian, ISO code: dv), the language of the Maldives. It is NOT Sinhala (Sri Lankan).
 - Dhivehi uses the Thaana script (e.g. ދިވެހި, އަޅުގަނޑު, ވަރަށް, ހުރިހާ). Thaana letters look like ހ ށ ނ ރ ބ ޅ ކ އ ވ މ ފ ދ ތ ލ ގ ޏ ސ ޑ ޒ ޓ ޔ ޕ ޖ ޗ ޘ ޙ ޚ ޛ ޜ ޝ ޞ ޟ ޠ ޡ ޢ ޣ ޤ ޥ.
 - Do NOT output Sinhala script (e.g. ක ග ට ද න ම ය ර ල ව ස හ ඈ ඉ උ එ ඔ — these are WRONG). If you produce Sinhala characters anywhere, you have made an error.

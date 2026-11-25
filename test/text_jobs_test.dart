@@ -104,6 +104,8 @@ void main() {
       fixture('background_prompt_no_note'),
     );
     expect(summaryPrompt, fixture('summary_prompt'));
+    expect(buildSummaryPrompt(shipped('en')), summaryPrompt);
+    expect(buildSummaryPrompt(shipped('dv')), fixture('summary_prompt_dv'));
     expect(folderFlatPrompt, fixture('folder_flat_prompt'));
     expect(folderHierPrompt, fixture('folder_hier_prompt'));
   });
@@ -230,20 +232,68 @@ void main() {
     );
   });
 
-  test('summary needs a translation first', () async {
+  test('a summary in a new language translates first', () async {
     final rec = touch('a.mp3');
     touch('.a/transcript.srt', _srt);
+    touch('.a/lang', 'ja\n');
+    final prompts = <String>[];
     final job = SummaryJob(
       library: library,
       recording: rec,
       generator: _gemini,
-      clientFactory: () => MockClient((req) async => _geminiText('unused')),
+      languages: LanguageList(root),
+      lang: 'dv',
+      clientFactory: () => MockClient((req) async {
+        prompts.add(_parts(req).$1);
+        return _geminiText(prompts.length == 1 ? _srt : '- ނުކުތާ');
+      }),
     );
     await job.run();
 
-    expect(job.state, JobState.failed);
-    expect(job.error, contains('translate this recording first'));
+    expect(job.state, JobState.done, reason: job.error);
+    expect(prompts, [
+      withBackground(
+        buildTranslationPrompt(shipped('ja'), shipped('dv')),
+        title: 'a',
+      ),
+      withBackground(buildSummaryPrompt(shipped('dv')), title: 'a'),
+    ]);
+    expect(read('.a/translation.dv.srt'), isNotEmpty);
+    expect(read('.a/summary.dv.md'), '- ނުކުތާ\n');
   });
+
+  test(
+    'a summary in the recording\'s own language reads the transcript',
+    () async {
+      final rec = touch('a.mp3');
+      touch('.a/transcript.srt', _srt);
+      touch('.a/lang', 'ja\n');
+      late (String, String?) sent;
+      final job = SummaryJob(
+        library: library,
+        recording: rec,
+        generator: _gemini,
+        languages: LanguageList(root),
+        lang: 'ja',
+        clientFactory: () => MockClient((req) async {
+          sent = _parts(req);
+          return _geminiText('- 要点');
+        }),
+      );
+      await job.run();
+
+      expect(job.state, JobState.done, reason: job.error);
+      expect(sent, (
+        withBackground(buildSummaryPrompt(shipped('ja')), title: 'a'),
+        'Speaker 1: one\nSpeaker 2: two\nplain',
+      ));
+      expect(read('.a/summary.ja.md'), '- 要点\n');
+      expect(
+        File(p.join(root.path, '.a', 'translation.ja.srt')).existsSync(),
+        isFalse,
+      );
+    },
+  );
 
   test('summary sends the named transcript and stores markdown', () async {
     final rec = touch('a.mp3');
@@ -253,6 +303,7 @@ void main() {
       library: library,
       recording: rec,
       generator: _gemini,
+      languages: LanguageList(root),
       clientFactory: () => MockClient((req) async {
         sent = _parts(req);
         return _geminiText('  - a point\n');
@@ -280,6 +331,7 @@ void main() {
         apiKey: 'key',
         model: 'claude-x',
       ),
+      languages: LanguageList(root),
       clientFactory: () => MockClient((req) async {
         urls.add('${req.url.host}${req.url.path}');
         if (req.method == 'GET') {

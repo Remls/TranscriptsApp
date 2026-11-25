@@ -111,7 +111,10 @@ class Session extends ChangeNotifier {
   /// empty when it has none.
   List<Cue> translationFuriganaCues = const [];
 
-  /// The open recording's English summary.
+  /// The language shown on the Summary tab.
+  String summaryLang = englishLang;
+
+  /// The open recording's summary in [summaryLang].
   String? summary;
   List<Note> notes = const [];
   Map<String, String> speakerNames = const {};
@@ -127,7 +130,7 @@ class Session extends ChangeNotifier {
 
   /// The latest job per kind, target and language, kept after it ends so its
   /// outcome can be shown. The target is a recording's or folder's path. The
-  /// language is the one a translation is into, else null.
+  /// language is the one a translation or summary is in, else null.
   final _jobs = <(JobKind, String, String?), Job>{};
 
   /// Called when a job starts and when it ends, with its kind and target.
@@ -144,6 +147,12 @@ class Session extends ChangeNotifier {
   Future<void> open(Recording r, {Duration position = Duration.zero}) async {
     recording = r;
     translationLang = _firstTranslationLang(r);
+    final preferred = settings.translateLang;
+    summaryLang = r.summaries.isEmpty || r.summaries.contains(preferred)
+        ? preferred
+        : r.summaries.contains(translationLang)
+        ? translationLang
+        : r.summaries.first;
     _loadSidecars();
     activeIndex.value = -1;
     translationActiveIndex.value = -1;
@@ -208,10 +217,24 @@ class Session extends ChangeNotifier {
     return languages.all.map((l) => l.code).firstWhere((c) => c != r.lang);
   }
 
-  /// Shows the translation in [lang].
+  /// Shows the translation in [lang], and the summary in [lang] too when
+  /// there is one.
   void showTranslation(String lang) {
     if (lang == translationLang) return;
     translationLang = lang;
+    if (recording?.summaries.contains(lang) ?? false) summaryLang = lang;
+    _loadSidecars();
+    notifyListeners();
+  }
+
+  /// Shows the summary in [lang], and the translation into [lang] too when
+  /// there is one.
+  void showSummary(String lang) {
+    if (lang == summaryLang) return;
+    summaryLang = lang;
+    if (recording?.translations.contains(lang) ?? false) {
+      translationLang = lang;
+    }
     _loadSidecars();
     notifyListeners();
   }
@@ -228,7 +251,7 @@ class Session extends ChangeNotifier {
     translationFuriganaCues = readings.existsSync()
         ? parseSrt(readings.readAsStringSync())
         : const [];
-    final summaryFile = library.summaryFile(file, englishLang);
+    final summaryFile = library.summaryFile(file, summaryLang);
     summary = summaryFile.existsSync() ? summaryFile.readAsStringSync() : null;
     speakerNames = library.readStringMap(file, Sidecar.speakers);
     speakerOverrides = library.readStringMap(file, Sidecar.overrides);
@@ -323,7 +346,8 @@ class Session extends ChangeNotifier {
     );
   }
 
-  /// The latest [kind] job on [target], into [lang] for a translation.
+  /// The latest [kind] job on [target], in [lang] for a translation or
+  /// summary.
   Job? jobFor(JobKind kind, String target, {String? lang}) =>
       _jobs[(kind, target, lang)];
 
@@ -397,13 +421,22 @@ class Session extends ChangeNotifier {
     return null;
   }
 
-  String? startSummary(Recording r) {
+  /// Starts summarizing [r] in [lang], translating it first when needed.
+  /// Returns a message instead when a setting is missing.
+  String? startSummary(Recording r, String lang) {
     final (generator, problem) = TextGenerator.fromSettings(settings);
     if (generator == null) return problem;
     _start(
       JobKind.summary,
       r.relPath,
-      SummaryJob(library: library, recording: r.file, generator: generator),
+      SummaryJob(
+        library: library,
+        recording: r.file,
+        generator: generator,
+        languages: languages,
+        lang: lang,
+      ),
+      lang: lang,
     );
     return null;
   }

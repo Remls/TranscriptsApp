@@ -106,14 +106,6 @@ String buildTranslationPrompt(Language source, Language target) {
       ? 'The input is English speech.'
       : 'The input mixes ${source.name} (${source.script} script) and '
             'English code-switched speech.';
-  final notes = [
-    for (final line in target.notes.split('\n'))
-      if (line.trim().isNotEmpty) '- ${line.trim()}',
-  ];
-  final about = notes.isEmpty
-      ? ''
-      : '\nAbout ${target.name}, the language to translate into:\n'
-            '${notes.join('\n')}\n';
   final rules = [
     '- Translate ${source.name} to natural conversational ${target.name}.',
     toEnglish
@@ -126,7 +118,7 @@ String buildTranslationPrompt(Language source, Language target) {
   return '''You are translating an SRT subtitle file to ${target.name}.
 
 $input
-$about
+${_aboutLanguage(target)}
 CRITICAL: Preserve the SRT structure EXACTLY:
 - Same number of cues, in the same order.
 - Same cue numbers.
@@ -152,6 +144,37 @@ Keep under 250 words. No preamble or sign-off — just the summary.
 
 Transcript follows.
 ''';
+
+/// [language]'s prompt notes as a section about the language to write in,
+/// or empty when it has none.
+String _aboutLanguage(Language language) {
+  final notes = [
+    for (final line in language.notes.split('\n'))
+      if (line.trim().isNotEmpty) '- ${line.trim()}',
+  ];
+  return notes.isEmpty
+      ? ''
+      : '\nAbout ${language.name}, the language to write in:\n'
+            '${notes.join('\n')}\n';
+}
+
+/// The summary prompt for a transcript in [language], asking for a summary
+/// in it.
+String buildSummaryPrompt(Language language) {
+  if (language.code == englishLang) return summaryPrompt;
+  return '''You are summarizing a recording transcript in ${language.name}.
+Each line is prefixed with a speaker label (e.g. "Speaker 1:" or a name like "Ali:").
+${_aboutLanguage(language)}
+Produce a concise summary in ${language.name}, written in ${language.script}, with markdown formatting:
+- A 1-2 sentence overview of what the recording is about.
+- 3-6 bullet points covering main topics, decisions, and action items.
+- Attribute decisions/actions to speakers by their label/name where relevant.
+
+Keep under 250 words. No preamble or sign-off — just the summary.
+
+Transcript follows.
+''';
+}
 
 const folderFlatPrompt =
     '''You are synthesizing a unified summary of a set of related recordings.
@@ -196,16 +219,24 @@ String _withContext(String prompt, String lastLine, String paragraphs) {
       lastLine;
 }
 
-/// The summary prompt, explaining note lines and pictures when the input has
-/// them.
-String summaryPromptFor({required bool notes, bool pictures = false}) =>
-    notes || pictures
-    ? _withContext(
-        summaryPrompt,
-        'Transcript follows.\n',
-        '$_notesParagraph${pictures ? _picturesParagraph : ''}',
-      )
-    : summaryPrompt;
+/// The summary prompt for a transcript in [language], English when not
+/// given, explaining note lines and pictures when the input has them.
+String summaryPromptFor({
+  required bool notes,
+  bool pictures = false,
+  Language? language,
+}) {
+  final prompt = language == null
+      ? summaryPrompt
+      : buildSummaryPrompt(language);
+  return notes || pictures
+      ? _withContext(
+          prompt,
+          'Transcript follows.\n',
+          '$_notesParagraph${pictures ? _picturesParagraph : ''}',
+        )
+      : prompt;
+}
 
 /// The flat folder summary prompt, explaining note lines when the input has
 /// them.

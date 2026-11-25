@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:transcripts/job.dart';
+import 'package:transcripts/languages.dart';
 import 'package:transcripts/library.dart';
 import 'package:transcripts/notes.dart';
 import 'package:transcripts/prompts.dart';
@@ -141,6 +142,7 @@ void main() {
       final job = SummaryJob(
         library: library,
         recording: recording,
+        languages: LanguageList(root),
         generator: const TextGenerator(
           provider: TextProvider.gemini,
           apiKey: 'key',
@@ -247,6 +249,7 @@ void main() {
       final job = SummaryJob(
         library: library,
         recording: recording,
+        languages: LanguageList(root),
         generator: TextGenerator(provider: provider, apiKey: 'k', model: 'm'),
         clientFactory: () => MockClient((req) async {
           if (req.method == 'GET') {
