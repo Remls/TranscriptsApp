@@ -7,6 +7,7 @@ import 'anthropic.dart';
 import 'backup_section.dart';
 import 'gemini.dart';
 import 'job_panel.dart';
+import 'languages.dart';
 import 'languages_screen.dart';
 import 'session.dart';
 import 'settings.dart';
@@ -235,6 +236,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onChanged: _settings.setAnthropicModel,
               ),
             ],
+            const SizedBox(height: 8),
+            LanguageRow(
+              label: 'Default language',
+              languages: widget.session.languages,
+              lookup: widget.session.languageLookup,
+              value: widget.session.languages.contains(_settings.translateLang)
+                  ? _settings.translateLang
+                  : englishLang,
+              onChanged: _settings.setTranslateLang,
+            ),
             const _Heading('Appearance'),
             SegmentedButton<ThemeMode>(
               segments: const [

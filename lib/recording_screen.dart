@@ -551,7 +551,6 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
       return;
     }
     if (tab != _Tab.transcript) _show(tab, target);
-    if (into != null) _session.settings.setTranslateLang(into);
     final job = _jobOn(recording, tab)!;
     void onChange() {
       if (job.state == JobState.running) return;
@@ -927,10 +926,7 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
                     lookup: _session.languageLookup,
                     value: target.code,
                     exclude: {recording.lang},
-                    onChanged: (code) {
-                      _session.settings.setTranslateLang(code);
-                      _session.showTranslation(code);
-                    },
+                    onChanged: _session.showTranslation,
                   )
                 : null,
             onStart: recording.hasTranscript
@@ -976,10 +972,7 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
                     languages: _session.languages,
                     lookup: _session.languageLookup,
                     value: target.code,
-                    onChanged: (code) {
-                      _session.settings.setTranslateLang(code);
-                      _session.showSummary(code);
-                    },
+                    onChanged: _session.showSummary,
                   )
                 : null,
             onStart: ready ? () => _start(recording, tab) : null,
