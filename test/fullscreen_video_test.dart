@@ -6,6 +6,26 @@ import 'package:transcripts/srt.dart';
 import 'languages_fixture.dart';
 
 void main() {
+  test('the menu offers the transcript and every translation', () {
+    expect(
+      subtitleChoices(hasTranscript: false, translations: const []),
+      isEmpty,
+    );
+    expect(subtitleChoices(hasTranscript: true, translations: const []), [
+      (SubtitleMode.off, null),
+      (SubtitleMode.transcript, null),
+    ]);
+    expect(
+      subtitleChoices(hasTranscript: true, translations: const ['en', 'ja']),
+      [
+        (SubtitleMode.off, null),
+        (SubtitleMode.transcript, null),
+        (SubtitleMode.translation, 'en'),
+        (SubtitleMode.translation, 'ja'),
+      ],
+    );
+  });
+
   test('the first available subtitles are chosen, or off', () {
     SubtitleMode first(
       List<SubtitleMode> preferred,

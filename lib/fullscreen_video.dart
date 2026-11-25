@@ -36,6 +36,24 @@ SubtitleMode firstSubtitles(
   return .off;
 }
 
+/// A choice in the subtitle menu: a mode, with the translation's language
+/// for [SubtitleMode.translation].
+typedef SubtitleChoice = (SubtitleMode, String?);
+
+/// The subtitle menu's choices for a recording with a transcript when
+/// [hasTranscript], translated into [translations]. Empty when there is
+/// nothing to show.
+List<SubtitleChoice> subtitleChoices({
+  required bool hasTranscript,
+  required List<String> translations,
+}) => [
+  if (hasTranscript) ...[
+    (SubtitleMode.off, null),
+    (SubtitleMode.transcript, null),
+    for (final lang in translations) (SubtitleMode.translation, lang),
+  ],
+];
+
 /// The text lines of [cue], without speaker labels, taken from [readings]
 /// where it has the same line with readings added. When the lines come from
 /// more than one speaker, each starts with a dash. [speakerOf] gives the
@@ -417,21 +435,22 @@ class _FullscreenVideoState extends State<FullscreenVideo>
 
   Widget _subtitlesButton() {
     final languages = _session.languages;
-    final lang = _session.recording?.lang;
-    final options = [
-      (SubtitleMode.off, 'Off', true),
-      (
-        SubtitleMode.transcript,
-        'Transcript (${lang == null ? '' : languages.resolve(lang).name})',
-        _session.cues.isNotEmpty,
-      ),
-      (
-        SubtitleMode.translation,
-        'Translation (${languages.resolve(_session.translationLang).name})',
-        _session.translatedCues.isNotEmpty,
-      ),
-    ];
-    return PopupMenuButton<SubtitleMode>(
+    final recording = _session.recording;
+    final choices = subtitleChoices(
+      hasTranscript: _session.cues.isNotEmpty,
+      translations: recording?.translations ?? const [],
+    );
+    final shown = (
+      _subtitleMode,
+      _subtitleMode == .translation ? _session.translationLang : null,
+    );
+    String label(SubtitleChoice choice) => switch (choice.$1) {
+      .off => 'Off',
+      .transcript =>
+        'Transcript (${languages.resolve(recording?.lang ?? defaultLang).name})',
+      .translation => 'Translation (${languages.resolve(choice.$2!).name})',
+    };
+    return PopupMenuButton<SubtitleChoice>(
       tooltip: 'Subtitles',
       icon: Icon(
         _subtitleMode == .off
@@ -440,19 +459,27 @@ class _FullscreenVideoState extends State<FullscreenVideo>
       ),
       onOpened: () => _hideTimer?.cancel(),
       onCanceled: _scheduleHide,
-      onSelected: (mode) {
+      onSelected: (choice) {
+        final (mode, lang) = choice;
+        if (lang != null) _session.showTranslation(lang);
         setState(() => _subtitleMode = mode);
         _scheduleHide();
       },
-      itemBuilder: (context) => [
-        for (final (mode, label, available) in options)
-          CheckedPopupMenuItem(
-            value: mode,
-            enabled: available,
-            checked: mode == _subtitleMode,
-            child: Text(label),
-          ),
-      ],
+      itemBuilder: (context) => choices.isEmpty
+          ? const [
+              PopupMenuItem(
+                enabled: false,
+                child: Text('Transcribe this recording to show subtitles'),
+              ),
+            ]
+          : [
+              for (final choice in choices)
+                CheckedPopupMenuItem(
+                  value: choice,
+                  checked: choice == shown,
+                  child: Text(label(choice)),
+                ),
+            ],
     );
   }
 
