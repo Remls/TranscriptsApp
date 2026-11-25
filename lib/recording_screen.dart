@@ -22,12 +22,14 @@ import 'player_bar.dart';
 import 'ruby.dart';
 import 'search.dart';
 import 'session.dart';
+import 'sheet.dart';
 import 'settings_screen.dart';
 import 'srt.dart';
 import 'swipe_back.dart';
 import 'transcript_view.dart';
 import 'video_panel.dart';
 import 'transcription_job.dart';
+import 'menu.dart';
 
 enum _Tab {
   transcript('Transcript', 'transcript', JobKind.transcribe),
@@ -95,6 +97,20 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
   /// Whether the search field takes the keyboard when it opens.
   bool _focusSearch = true;
   final _searchField = TextEditingController();
+
+  /// The tabs whose content has scrolled up under their strip.
+  final _scrolledUnder = <_Tab>{};
+
+  /// Records whether [tab]'s content has scrolled under its strip, after the
+  /// current frame.
+  void _setScrolledUnder(_Tab tab, bool under) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _scrolledUnder.contains(tab) == under) return;
+      setState(
+        () => under ? _scrolledUnder.add(tab) : _scrolledUnder.remove(tab),
+      );
+    });
+  }
 
   /// The note about the open recording, as typed in the transcription panel.
   var _context = '';
@@ -617,14 +633,19 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
   }
 
   Widget _menu(Recording recording) {
-    return PopupMenuButton<RecordingAction>(
-      onSelected: (action) => _onRecordingAction(recording, action),
-      itemBuilder: (context) => [
-        for (final (i, group) in recordingActionGroups.indexed) ...[
-          if (i > 0) const PopupMenuDivider(),
-          for (final (action, _, label) in group)
-            PopupMenuItem(value: action, child: Text(label)),
-        ],
+    return MenuButton(
+      tooltip: 'More options',
+      groups: [
+        for (final group in recordingActionGroups)
+          [
+            for (final (action, icon, label) in group)
+              menuEntry(
+                icon,
+                label,
+                () => _onRecordingAction(recording, action),
+                destructive: action == RecordingAction.trash,
+              ),
+          ],
       ],
     );
   }
@@ -648,6 +669,7 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
       _Tab.summary => const <Cue>[],
     };
     return ActionStrip(
+      scrolledUnder: _scrolledUnder.contains(tab),
       info: lines == null ? null : '$lines ${lines == 1 ? 'line' : 'lines'}',
       hint: lines == null ? null : 'Long-press a line to edit',
       actions: [
@@ -662,7 +684,7 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
           IconButton(
             tooltip: 'Speakers',
             onPressed: () => showSpeakersSheet(context, _session),
-            icon: const Icon(Icons.people_outline),
+            icon: const Icon(Icons.record_voice_over_outlined),
           ),
         IconButton(
           tooltip: 'Regenerate',
@@ -989,9 +1011,25 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
           children: [
             _strip(recording, tab),
             Expanded(
-              child: Directionality(
-                textDirection: target.rtl ? .rtl : .ltr,
-                child: MarkdownView(summary),
+              child: NotificationListener<ScrollMetricsNotification>(
+                onNotification: (n) {
+                  if (n.depth == 0) {
+                    _setScrolledUnder(_Tab.summary, n.metrics.pixels > 0);
+                  }
+                  return false;
+                },
+                child: NotificationListener<ScrollUpdateNotification>(
+                  onNotification: (n) {
+                    if (n.depth == 0) {
+                      _setScrolledUnder(_Tab.summary, n.metrics.pixels > 0);
+                    }
+                    return false;
+                  },
+                  child: Directionality(
+                    textDirection: target.rtl ? .rtl : .ltr,
+                    child: MarkdownView(summary),
+                  ),
+                ),
               ),
             ),
           ],
@@ -1002,33 +1040,56 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
   /// Switches between [recording]'s translations or summaries, for [tab], or
   /// starts a new one.
   Widget _languageMenu(Recording recording, _Tab tab) {
-    const newOne = '';
-    final shown = _shownLang(tab);
-    return PopupMenuButton<String>(
-      tooltip: '${tab.label} language',
-      onSelected: (code) =>
-          code == newOne ? _newInLanguage(recording, tab) : _show(tab, code),
-      itemBuilder: (context) => [
-        for (final code in _langsOn(recording, tab))
-          CheckedPopupMenuItem(
-            value: code,
-            checked: code == shown,
-            child: Text(_session.languages.resolve(code).name),
-          ),
-        const PopupMenuDivider(),
-        PopupMenuItem(value: newOne, child: Text('New ${tab.noun}…')),
-      ],
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+    return Tooltip(
+      message: '${tab.label} language',
+      child: TextButton(
+        onPressed: () => _pickLanguageOn(recording, tab),
+        style: TextButton.styleFrom(
+          foregroundColor: Theme.of(context).colorScheme.onSurface,
+          padding: const EdgeInsetsDirectional.only(start: 12, end: 4),
+        ),
         child: Row(
           mainAxisSize: .min,
           children: [
-            Text(_session.languages.resolve(shown).name),
+            Text(_session.languages.resolve(_shownLang(tab)).name),
             const Icon(Icons.arrow_drop_down),
           ],
         ),
       ),
     );
+  }
+
+  /// Asks which of [recording]'s translations or summaries to show on [tab],
+  /// or to start a new one.
+  Future<void> _pickLanguageOn(Recording recording, _Tab tab) async {
+    const newOne = '';
+    final shown = _shownLang(tab);
+    final code = await showSheet<String>(
+      context,
+      builder: (context) => SheetBody(
+        title: '${tab.label} language',
+        children: [
+          for (final code in _langsOn(recording, tab))
+            SheetOption(
+              title: _session.languages.resolve(code).name,
+              selected: code == shown,
+              onTap: () => Navigator.pop(context, code),
+            ),
+          const SheetDivider(),
+          SheetOption(
+            leading: const Icon(Icons.add),
+            title: 'New ${tab.noun}…',
+            onTap: () => Navigator.pop(context, newOne),
+          ),
+        ],
+      ),
+    );
+    if (code == null || !mounted) return;
+    if (code == newOne) {
+      await _newInLanguage(recording, tab);
+    } else {
+      _show(tab, code);
+    }
   }
 
   /// Asks for a language [recording] has no translation or summary in, for
@@ -1099,6 +1160,7 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
       activeIndex: _session.activeIndex,
       onSeek: _session.seekAndPlay,
       onLineLongPress: (cue, item) => _onLineLongPress(cue, item),
+      onScrolledUnder: (under) => _setScrolledUnder(_Tab.transcript, under),
       selected: _selection,
       onLineTap: _toggleLine,
     );
@@ -1125,6 +1187,7 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
       onSeek: _session.seekAndPlay,
       onLineLongPress: (cue, item) =>
           _onLineLongPress(cue, item, translation: _session.translationLang),
+      onScrolledUnder: (under) => _setScrolledUnder(_Tab.translation, under),
       selected: _selection,
       onLineTap: _toggleLine,
     );

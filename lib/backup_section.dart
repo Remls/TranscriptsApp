@@ -194,29 +194,17 @@ class BackupSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(
-      crossAxisAlignment: .start,
+      mainAxisSize: .min,
       children: [
-        const Text(
-          'A backup is one zip file with every recording, transcript, '
-          'translation, summary and context note, and your language list. The '
-          'trash, API keys and the other settings are left out.',
+        ListTile(
+          leading: const Icon(Icons.archive_outlined),
+          title: const Text('Create backup'),
+          onTap: () => _create(context),
         ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 12,
-          runSpacing: 8,
-          children: [
-            FilledButton.tonalIcon(
-              onPressed: () => _create(context),
-              icon: const Icon(Icons.archive_outlined),
-              label: const Text('Create backup'),
-            ),
-            OutlinedButton.icon(
-              onPressed: () => _restore(context),
-              icon: const Icon(Icons.unarchive_outlined),
-              label: const Text('Restore from backup'),
-            ),
-          ],
+        ListTile(
+          leading: const Icon(Icons.unarchive_outlined),
+          title: const Text('Restore from backup'),
+          onTap: () => _restore(context),
         ),
       ],
     );

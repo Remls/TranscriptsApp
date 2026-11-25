@@ -39,6 +39,43 @@ class GeminiFile {
   final String state;
 }
 
+/// Words in the ids of Gemini models made for something other than
+/// transcribing and writing text.
+const _specialGeminiWords = [
+  'tts',
+  'image',
+  'live',
+  'native-audio',
+  'embedding',
+  'computer-use',
+  'robotics',
+  'gemma',
+  'aqa',
+  'learnlm',
+];
+
+final _geminiLine = RegExp(r'^gemini-(\d+(?:\.\d+)?)-(pro|flash-lite|flash)\b');
+
+/// Whether [id] is a Gemini Pro, Flash or Flash-Lite model for general use.
+bool isMainGeminiModel(String id) =>
+    _geminiLine.hasMatch(id) && !_specialGeminiWords.any(id.contains);
+
+/// Orders models with the main ones first, newest version first, then Pro,
+/// Flash and Flash-Lite, then the rest by id.
+int compareGeminiModels(ModelInfo a, ModelInfo b) {
+  if (a.main != b.main) return a.main ? -1 : 1;
+  final x = _geminiLine.firstMatch(a.id);
+  final y = _geminiLine.firstMatch(b.id);
+  if (x != null && y != null) {
+    final byVersion = double.parse(y[1]!).compareTo(double.parse(x[1]!));
+    if (byVersion != 0) return byVersion;
+    const tiers = ['pro', 'flash', 'flash-lite'];
+    final byTier = tiers.indexOf(x[2]!).compareTo(tiers.indexOf(y[2]!));
+    if (byTier != 0) return byTier;
+  }
+  return a.id.compareTo(b.id);
+}
+
 class GeminiClient {
   GeminiClient({
     required this.apiKey,
@@ -211,7 +248,9 @@ class GeminiClient {
 
   /// Names of the models that can generate content, without the "models/"
   /// prefix.
-  Future<List<String>> listModels() async {
+  /// The models that generate content, the main ones first by
+  /// [compareGeminiModels].
+  Future<List<ModelInfo>> listModels() async {
     final res = await client.get(
       Uri.parse('$baseUrl/v1beta/models?pageSize=1000'),
       headers: _auth,
@@ -223,8 +262,18 @@ class GeminiClient {
         if ((m['supportedGenerationMethods'] as List? ?? const []).contains(
           'generateContent',
         ))
-          (m['name'] as String).replaceFirst('models/', ''),
-    ]..sort();
+          _info(m),
+    ]..sort(compareGeminiModels);
+  }
+
+  ModelInfo _info(Map<String, dynamic> m) {
+    final id = (m['name'] as String).replaceFirst('models/', '');
+    final name = (m['displayName'] as String?)?.trim() ?? '';
+    return (
+      id: id,
+      name: name.isEmpty ? id : name,
+      main: isMainGeminiModel(id),
+    );
   }
 
   Map<String, dynamic> _json(http.Response res) {

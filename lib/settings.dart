@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'languages.dart';
+import 'model_names.dart';
 
 /// Storage for API keys.
 abstract class SecretStore {
@@ -36,6 +37,8 @@ const _geminiKeyName = 'geminiApiKey';
 const _anthropicKeyName = 'anthropicApiKey';
 const _geminiModelPref = 'geminiModel';
 const _anthropicModelPref = 'anthropicModel';
+const _geminiModelNamePref = 'geminiModelName';
+const _anthropicModelNamePref = 'anthropicModelName';
 const _textProviderPref = 'textProvider';
 const _themePref = 'theme';
 const _transcribeLangPref = 'transcribeLang';
@@ -75,12 +78,34 @@ class Settings extends ChangeNotifier {
 
   String get anthropicModel => _prefs.getString(_anthropicModelPref) ?? '';
 
+  /// The name the chosen Gemini model shows people, or one made from its id
+  /// when it was typed in.
+  String get geminiModelName {
+    final name = _prefs.getString(_geminiModelNamePref) ?? '';
+    return name.isEmpty ? modelDisplayName(geminiModel) : name;
+  }
+
+  /// The name the chosen Claude model shows people, or one made from its id
+  /// when it was typed in.
+  String get anthropicModelName {
+    final name = _prefs.getString(_anthropicModelNamePref) ?? '';
+    return name.isEmpty ? modelDisplayName(anthropicModel) : name;
+  }
+
+  /// Whether Claude has a key and a model.
+  bool get claudeReady => anthropicKey.isNotEmpty && anthropicModel.isNotEmpty;
+
+  /// The provider for translations and summaries: the chosen one, or Gemini
+  /// when Claude is chosen but not [claudeReady].
   TextProvider get textProvider {
     final name = _prefs.getString(_textProviderPref);
-    return TextProvider.values.firstWhere(
+    final chosen = TextProvider.values.firstWhere(
       (p) => p.name == name,
       orElse: () => TextProvider.gemini,
     );
+    return chosen == TextProvider.anthropic && !claudeReady
+        ? TextProvider.gemini
+        : chosen;
   }
 
   ThemeMode get themeMode {
@@ -116,11 +141,17 @@ class Settings extends ChangeNotifier {
     await _writeSecret(_anthropicKeyName, _anthropicKey);
   }
 
-  Future<void> setGeminiModel(String value) =>
-      _setPref(_geminiModelPref, value.trim());
+  /// Chooses the Gemini model [value], shown as [name] when it has one.
+  Future<void> setGeminiModel(String value, {String name = ''}) async {
+    await _prefs.setString(_geminiModelNamePref, name);
+    await _setPref(_geminiModelPref, value.trim());
+  }
 
-  Future<void> setAnthropicModel(String value) =>
-      _setPref(_anthropicModelPref, value.trim());
+  /// Chooses the Claude model [value], shown as [name] when it has one.
+  Future<void> setAnthropicModel(String value, {String name = ''}) async {
+    await _prefs.setString(_anthropicModelNamePref, name);
+    await _setPref(_anthropicModelPref, value.trim());
+  }
 
   Future<void> setTextProvider(TextProvider value) =>
       _setPref(_textProviderPref, value.name);

@@ -47,6 +47,7 @@ class TranscriptView extends StatefulWidget {
     this.search,
     this.selected,
     this.onLineTap,
+    this.onScrolledUnder,
     this.readings,
   });
 
@@ -82,14 +83,23 @@ class TranscriptView extends StatefulWidget {
   final Set<(int, int)>? selected;
   final void Function(int cue, int item)? onLineTap;
 
+  /// Called with whether the list's content has scrolled up past its top
+  /// edge.
+  final ValueChanged<bool>? onScrolledUnder;
+
   @override
   State<TranscriptView> createState() => _TranscriptViewState();
 }
+
+/// How far down the list, as a fraction of its height, the active row may
+/// end before the list scrolls to follow playback.
+const _followEdge = 0.85;
 
 class _TranscriptViewState extends State<TranscriptView> {
   final _scroll = ItemScrollController();
   final _positions = ItemPositionsListener.create();
   bool _userScrolled = false;
+  bool? _scrolledUnder;
 
   /// The list's rows: cue indexes and notes, in reading order.
   late List<Object> _rows;
@@ -118,9 +128,47 @@ class _TranscriptViewState extends State<TranscriptView> {
   void initState() {
     super.initState();
     _layOutRows();
-    _initialIndex =
-        widget.search?.currentMatch?.row ?? (_activeRow > 0 ? _activeRow : 0);
+    _initialIndex = widget.search?.currentMatch?.row ?? 0;
     widget.activeIndex.addListener(_onActiveChanged);
+    _positions.itemPositions.addListener(_onPositionsChanged);
+    if (widget.search == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _follow(jump: true));
+    }
+  }
+
+  void _onPositionsChanged() {
+    final positions = _positions.itemPositions.value;
+    if (positions.isEmpty) return;
+    final under = !positions.any((p) => p.index == 0 && p.itemLeadingEdge >= 0);
+    if (under == _scrolledUnder) return;
+    _scrolledUnder = under;
+    widget.onScrolledUnder?.call(under);
+  }
+
+  /// Brings the active row into view when it is off screen or close to the
+  /// bottom, leaving the list where it is otherwise. Waits for a layout when
+  /// the list has none yet.
+  void _follow({bool jump = false}) {
+    final index = _activeRow;
+    if (index < 0 || !_scroll.isAttached) return;
+    if (_positions.itemPositions.value.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _follow(jump: jump);
+      });
+      return;
+    }
+    final shown = _positions.itemPositions.value.any(
+      (p) =>
+          p.index == index &&
+          p.itemLeadingEdge >= 0 &&
+          p.itemTrailingEdge <= _followEdge,
+    );
+    if (shown) return;
+    if (jump) {
+      _scroll.jumpTo(index: index, alignment: 0.35);
+    } else {
+      _scrollTo(index);
+    }
   }
 
   @override
@@ -148,6 +196,7 @@ class _TranscriptViewState extends State<TranscriptView> {
   @override
   void dispose() {
     widget.activeIndex.removeListener(_onActiveChanged);
+    _positions.itemPositions.removeListener(_onPositionsChanged);
     super.dispose();
   }
 
@@ -187,7 +236,7 @@ class _TranscriptViewState extends State<TranscriptView> {
     final index = _activeRow;
     if (index < 0) return;
     if (!_userScrolled) {
-      _scrollTo(index);
+      _follow();
     } else if (_isFullyVisible(index)) {
       setState(() => _userScrolled = false);
     }

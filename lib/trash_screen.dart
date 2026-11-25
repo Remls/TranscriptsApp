@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import 'library.dart';
 import 'trash.dart';
+import 'menu.dart';
 
 /// A byte count as B, KB, MB or GB.
 String formatBytes(int bytes) {
@@ -21,8 +22,6 @@ String _formatDate(DateTime d) {
   return '${d.year}-${two(d.month)}-${two(d.day)} '
       '${two(d.hour)}:${two(d.minute)}';
 }
-
-enum _ItemAction { select, restore, delete }
 
 class TrashScreen extends StatefulWidget {
   const TrashScreen({super.key, required this.library});
@@ -225,25 +224,29 @@ class _TrashScreenState extends State<TrashScreen> {
                       ),
                       trailing: selection != null
                           ? null
-                          : PopupMenuButton<_ItemAction>(
-                              onSelected: (action) => switch (action) {
-                                _ItemAction.select => _toggle(item),
-                                _ItemAction.restore => _restore(item),
-                                _ItemAction.delete => _delete(item),
-                              },
-                              itemBuilder: (context) => const [
-                                PopupMenuItem(
-                                  value: _ItemAction.select,
-                                  child: Text('Select multiple'),
-                                ),
-                                PopupMenuItem(
-                                  value: _ItemAction.restore,
-                                  child: Text('Restore'),
-                                ),
-                                PopupMenuItem(
-                                  value: _ItemAction.delete,
-                                  child: Text('Delete permanently'),
-                                ),
+                          : MenuButton(
+                              tooltip: 'More options',
+                              groups: [
+                                [
+                                  menuEntry(
+                                    Icons.checklist,
+                                    'Select multiple',
+                                    () => _toggle(item),
+                                  ),
+                                  menuEntry(
+                                    Icons.restore,
+                                    'Restore',
+                                    () => _restore(item),
+                                  ),
+                                ],
+                                [
+                                  menuEntry(
+                                    Icons.delete_forever_outlined,
+                                    'Delete permanently',
+                                    () => _delete(item),
+                                    destructive: true,
+                                  ),
+                                ],
                               ],
                             ),
                     ),

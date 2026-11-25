@@ -38,6 +38,10 @@ void main() {
     await settings.setGeminiKey('  secret ');
     await settings.setGeminiModel(' model-x ');
     await settings.setTextProvider(TextProvider.anthropic);
+    expect(settings.textProvider, TextProvider.gemini);
+    await settings.setAnthropicKey('claude-key');
+    await settings.setAnthropicModel('claude-model', name: 'Claude Model');
+    expect(settings.textProvider, TextProvider.anthropic);
     await settings.setThemeMode(ThemeMode.dark);
     await settings.setWallpaperColors(false);
     await settings.setTranscribeLang('ko');
@@ -46,6 +50,7 @@ void main() {
     expect(reloaded.geminiKey, 'secret');
     expect(reloaded.geminiModel, 'model-x');
     expect(reloaded.textProvider, TextProvider.anthropic);
+    expect(reloaded.anthropicModelName, 'Claude Model');
     expect(reloaded.themeMode, ThemeMode.dark);
     expect(reloaded.wallpaperColors, isFalse);
     expect(reloaded.transcribeLang, 'ko');
@@ -53,6 +58,9 @@ void main() {
 
     await reloaded.setGeminiModel('');
     expect(reloaded.geminiModel, 'gemini-3.8-flash');
+
+    await reloaded.setAnthropicKey('');
+    expect(reloaded.textProvider, TextProvider.gemini);
 
     await reloaded.setGeminiKey('');
     expect(secrets.values, isEmpty);

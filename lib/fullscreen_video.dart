@@ -13,6 +13,7 @@ import 'player_bar.dart';
 import 'ruby.dart';
 import 'ruby_text.dart';
 import 'session.dart';
+import 'sheet.dart';
 import 'srt.dart';
 import 'theme.dart';
 import 'video_panel.dart';
@@ -434,6 +435,24 @@ class _FullscreenVideoState extends State<FullscreenVideo>
   }
 
   Widget _subtitlesButton() {
+    return Builder(
+      builder: (buttonContext) => IconButton(
+        tooltip: 'Subtitles',
+        onPressed: () => _pickSubtitles(buttonContext),
+        icon: Icon(
+          _subtitleMode == .off
+              ? Icons.closed_caption_disabled_outlined
+              : Icons.closed_caption,
+        ),
+      ),
+    );
+  }
+
+  /// Asks which subtitles to show: off, the transcript or a translation.
+  /// The sheet takes its colors from [context], inside fullscreen's dark
+  /// theme.
+  Future<void> _pickSubtitles(BuildContext context) async {
+    _hideTimer?.cancel();
     final languages = _session.languages;
     final recording = _session.recording;
     final choices = subtitleChoices(
@@ -444,43 +463,45 @@ class _FullscreenVideoState extends State<FullscreenVideo>
       _subtitleMode,
       _subtitleMode == .translation ? _session.translationLang : null,
     );
-    String label(SubtitleChoice choice) => switch (choice.$1) {
-      .off => 'Off',
-      .transcript =>
-        'Transcript (${languages.resolve(recording?.lang ?? defaultLang).name})',
-      .translation => 'Translation (${languages.resolve(choice.$2!).name})',
-    };
-    return PopupMenuButton<SubtitleChoice>(
-      tooltip: 'Subtitles',
-      icon: Icon(
-        _subtitleMode == .off
-            ? Icons.closed_caption_disabled_outlined
-            : Icons.closed_caption,
-      ),
-      onOpened: () => _hideTimer?.cancel(),
-      onCanceled: _scheduleHide,
-      onSelected: (choice) {
-        final (mode, lang) = choice;
-        if (lang != null) _session.showTranslation(lang);
-        setState(() => _subtitleMode = mode);
-        _scheduleHide();
-      },
-      itemBuilder: (context) => choices.isEmpty
-          ? const [
-              PopupMenuItem(
-                enabled: false,
-                child: Text('Transcribe this recording to show subtitles'),
-              ),
-            ]
-          : [
-              for (final choice in choices)
-                CheckedPopupMenuItem(
-                  value: choice,
-                  checked: choice == shown,
-                  child: Text(label(choice)),
+    final choice = await showSheet<SubtitleChoice>(
+      context,
+      builder: (context) => SheetBody(
+        title: 'Subtitles',
+        header: choices.isEmpty
+            ? Text(
+                'Transcribe this recording to show subtitles.',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
-            ],
+              )
+            : null,
+        children: [
+          for (final choice in choices)
+            SheetOption(
+              leading: Icon(switch (choice.$1) {
+                .off => Icons.closed_caption_disabled_outlined,
+                .transcript => Icons.subject,
+                .translation => Icons.translate,
+              }),
+              title: switch (choice.$1) {
+                .off => 'Off',
+                .transcript =>
+                  'Transcript (${languages.resolve(recording?.lang ?? defaultLang).name})',
+                .translation =>
+                  'Translation (${languages.resolve(choice.$2!).name})',
+              },
+              selected: choice == shown,
+              onTap: () => Navigator.pop(context, choice),
+            ),
+        ],
+      ),
     );
+    if (choice != null && mounted) {
+      final (mode, lang) = choice;
+      if (lang != null) _session.showTranslation(lang);
+      setState(() => _subtitleMode = mode);
+    }
+    _scheduleHide();
   }
 
   @override
@@ -698,7 +719,11 @@ class _FullscreenVideoState extends State<FullscreenVideo>
                           PositionBar(player: player),
                           Row(
                             children: [
-                              SpeedButton(session: _session),
+                              SpeedButton(
+                                session: _session,
+                                onOpen: () => _hideTimer?.cancel(),
+                                onClose: _scheduleHide,
+                              ),
                               const Spacer(),
                               _subtitlesButton(),
                               IconButton(

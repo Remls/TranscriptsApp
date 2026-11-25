@@ -71,24 +71,27 @@ class TranscriptsApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DynamicColorBuilder(
-      builder: (wallpaperLight, wallpaperDark) => ListenableBuilder(
-        listenable: session.settings,
-        builder: (context, _) {
-          final wallpaper = session.settings.wallpaperColors;
-          return MaterialApp(
-            title: 'Transcripts',
-            theme: appTheme(
-              (wallpaper ? wallpaperLight : null) ?? appColorScheme(.light),
-            ),
-            darkTheme: appTheme(
-              (wallpaper ? wallpaperDark : null) ?? appColorScheme(.dark),
-            ),
-            themeMode: session.settings.themeMode,
-            navigatorObservers: [pipRouteObserver],
-            home: LibraryScreen(session: session, pip: pip),
-          );
-        },
-      ),
+      builder: (wallpaperLight, wallpaperDark) {
+        wallpaperColorsAvailable = wallpaperLight != null;
+        return ListenableBuilder(
+          listenable: session.settings,
+          builder: (context, _) {
+            final wallpaper = session.settings.wallpaperColors;
+            return MaterialApp(
+              title: 'Transcripts',
+              theme: appTheme(
+                (wallpaper ? wallpaperLight : null) ?? appColorScheme(.light),
+              ),
+              darkTheme: appTheme(
+                (wallpaper ? wallpaperDark : null) ?? appColorScheme(.dark),
+              ),
+              themeMode: session.settings.themeMode,
+              navigatorObservers: [pipRouteObserver],
+              home: LibraryScreen(session: session, pip: pip),
+            );
+          },
+        );
+      },
     );
   }
 }

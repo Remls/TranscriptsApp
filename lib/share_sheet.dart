@@ -10,6 +10,7 @@ import 'job_panel.dart';
 import 'library.dart';
 import 'session.dart';
 import 'share_parts.dart';
+import 'sheet.dart';
 
 const _zipMimeType = 'application/zip';
 
@@ -65,10 +66,8 @@ Future<void> showShareSheet(
   Recording recording,
 ) async {
   final library = session.library;
-  final choice = await showModalBottomSheet<ShareChoice>(
-    context: context,
-    showDragHandle: true,
-    isScrollControlled: true,
+  final choice = await showSheet<ShareChoice>(
+    context,
     builder: (context) => _ShareSheet(session: session, recording: recording),
   );
   if (choice == null || !context.mounted) return;
@@ -160,93 +159,77 @@ class _ShareSheetState extends State<_ShareSheet> {
   @override
   Widget build(BuildContext context) {
     final kind = _kind;
-    final theme = Theme.of(context);
-    final String title;
-    final List<Widget> rows;
+    const chevron = Icon(Icons.chevron_right);
     if (kind == null) {
-      title = 'Share ${widget.recording.name}';
-      rows = [
-        for (final k in availableShareKinds(
-          widget.session.library,
-          widget.recording.file,
-        ))
-          ListTile(
-            leading: Icon(switch (k) {
-              ShareKind.recording =>
-                widget.recording.isVideo
-                    ? Icons.videocam_outlined
-                    : Icons.graphic_eq,
-              ShareKind.transcript => Icons.subject,
-              ShareKind.translation => Icons.translate,
-              ShareKind.summary => Icons.summarize_outlined,
-              ShareKind.everything => Icons.folder_zip_outlined,
-            }),
-            title: Text(switch (k) {
-              ShareKind.recording => 'Recording',
-              ShareKind.transcript => 'Transcript',
-              ShareKind.translation => 'Translation',
-              ShareKind.summary => 'Summary',
-              ShareKind.everything => 'Everything (.zip)',
-            }),
-            trailing: formatsFor(k).isEmpty
-                ? null
-                : const Icon(Icons.chevron_right),
-            onTap: () => _pickKind(k),
-          ),
-      ];
-    } else if (_lang == null && kind != ShareKind.transcript) {
-      title = kind == ShareKind.summary ? 'Summary' : 'Translation';
-      rows = [
-        for (final code in _langs(kind))
-          ListTile(
-            title: Text(_name(code)),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => setState(() => _lang = code),
-          ),
-      ];
-    } else {
-      final lang = _lang;
-      title = switch (kind) {
+      return SheetBody(
+        title: 'Share ${widget.recording.name}',
+        children: [
+          for (final k in availableShareKinds(
+            widget.session.library,
+            widget.recording.file,
+          ))
+            SheetOption(
+              leading: Icon(switch (k) {
+                ShareKind.recording =>
+                  widget.recording.isVideo
+                      ? Icons.videocam_outlined
+                      : Icons.graphic_eq,
+                ShareKind.transcript => Icons.subject,
+                ShareKind.translation => Icons.translate,
+                ShareKind.summary => Icons.summarize_outlined,
+                ShareKind.everything => Icons.folder_zip_outlined,
+              }),
+              title: switch (k) {
+                ShareKind.recording => 'Recording',
+                ShareKind.transcript => 'Transcript',
+                ShareKind.translation => 'Translation',
+                ShareKind.summary => 'Summary',
+                ShareKind.everything => 'Everything (.zip)',
+              },
+              trailing: formatsFor(k).isEmpty ? null : chevron,
+              onTap: () => _pickKind(k),
+            ),
+        ],
+      );
+    }
+    if (_lang == null && kind != ShareKind.transcript) {
+      return SheetBody(
+        title: kind == ShareKind.summary ? 'Summary' : 'Translation',
+        onBack: _back,
+        children: [
+          for (final code in _langs(kind))
+            SheetOption(
+              title: _name(code),
+              trailing: chevron,
+              onTap: () => setState(() => _lang = code),
+            ),
+        ],
+      );
+    }
+    final lang = _lang;
+    return SheetBody(
+      title: switch (kind) {
         ShareKind.transcript => 'Transcript (${_name(widget.recording.lang)})',
         ShareKind.summary => 'Summary (${_name(lang!)})',
         _ => 'Translation (${_name(lang!)})',
-      };
-      rows = [
+      },
+      onBack: _back,
+      children: [
         for (final format in formatsFor(kind))
-          ListTile(
-            title: Text(format.label),
+          SheetOption(
+            leading: Icon(switch (format) {
+              ShareFormat.srt => Icons.subtitles_outlined,
+              ShareFormat.text => Icons.description_outlined,
+              ShareFormat.plain => Icons.notes,
+            }),
+            title: format.label,
             onTap: () => Navigator.pop<ShareChoice>(context, (
               kind: kind,
               lang: lang,
               format: format,
             )),
           ),
-      ];
-    }
-    return SafeArea(
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: .min,
-          children: [
-            ListTile(
-              leading: kind == null
-                  ? null
-                  : IconButton(
-                      tooltip: 'Back',
-                      onPressed: _back,
-                      icon: const Icon(Icons.arrow_back),
-                    ),
-              title: Text(
-                title,
-                maxLines: 1,
-                overflow: .ellipsis,
-                style: theme.textTheme.titleMedium,
-              ),
-            ),
-            ...rows,
-          ],
-        ),
-      ),
+      ],
     );
   }
 }

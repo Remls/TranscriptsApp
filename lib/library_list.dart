@@ -2,6 +2,8 @@ import 'package:material_ui/material_ui.dart';
 
 import 'library.dart';
 import 'srt.dart';
+import 'menu.dart';
+import 'sheet.dart';
 
 enum LibraryAction { search, import, newFolder, trash, settings }
 
@@ -109,36 +111,22 @@ class _LibraryListState extends State<LibraryList> {
     BuildContext context,
     Recording recording,
   ) async {
-    final action = await showModalBottomSheet<RecordingAction>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (context) => SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: .min,
-            children: [
-              ListTile(
-                title: Text(
-                  recording.name,
-                  maxLines: 1,
-                  overflow: .ellipsis,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
+    final action = await showSheet<RecordingAction>(
+      context,
+      builder: (context) => SheetBody(
+        title: recording.name,
+        children: [
+          for (final (i, group) in recordingActionGroups.indexed) ...[
+            if (i > 0) const SheetDivider(),
+            for (final (action, icon, label) in group)
+              SheetOption(
+                leading: Icon(icon),
+                title: label,
+                destructive: action == RecordingAction.trash,
+                onTap: () => Navigator.pop(context, action),
               ),
-              for (final (i, group) in recordingActionGroups.indexed) ...[
-                if (i > 0) const Divider(height: 1),
-                for (final (action, icon, label) in group)
-                  ListTile(
-                    dense: true,
-                    leading: Icon(icon),
-                    title: Text(label),
-                    onTap: () => Navigator.pop(context, action),
-                  ),
-              ],
-            ],
-          ),
-        ),
+          ],
+        ],
       ),
     );
     if (action != null) widget.onRecordingAction(recording, action);
@@ -251,32 +239,39 @@ class _FolderRow extends StatelessWidget {
               if (section.folder == null)
                 const SizedBox(width: _trailingWidth + _rightPad)
               else
-                PopupMenuButton<FolderAction>(
+                MenuButton(
                   tooltip: 'Folder actions',
-                  padding: EdgeInsets.zero,
-                  onSelected: onAction,
-                  itemBuilder: (context) => const [
-                    PopupMenuItem(
-                      value: FolderAction.summary,
-                      child: Text('Summary'),
-                    ),
-                    PopupMenuItem(
-                      value: FolderAction.combine,
-                      child: Text('Combine recordings'),
-                    ),
-                    PopupMenuItem(
-                      value: FolderAction.shareZip,
-                      child: Text('Share as .zip'),
-                    ),
-                    PopupMenuDivider(),
-                    PopupMenuItem(
-                      value: FolderAction.rename,
-                      child: Text('Rename'),
-                    ),
-                    PopupMenuItem(
-                      value: FolderAction.trash,
-                      child: Text('Move to trash'),
-                    ),
+                  groups: [
+                    [
+                      menuEntry(
+                        Icons.summarize_outlined,
+                        'Summary',
+                        () => onAction(FolderAction.summary),
+                      ),
+                      menuEntry(
+                        Icons.merge,
+                        'Combine recordings',
+                        () => onAction(FolderAction.combine),
+                      ),
+                      menuEntry(
+                        Icons.folder_zip_outlined,
+                        'Share as .zip',
+                        () => onAction(FolderAction.shareZip),
+                      ),
+                    ],
+                    [
+                      menuEntry(
+                        Icons.edit_outlined,
+                        'Rename',
+                        () => onAction(FolderAction.rename),
+                      ),
+                      menuEntry(
+                        Icons.delete_outline,
+                        'Move to trash',
+                        () => onAction(FolderAction.trash),
+                        destructive: true,
+                      ),
+                    ],
                   ],
                   child: SizedBox(
                     width: _trailingWidth + _rightPad,

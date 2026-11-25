@@ -38,18 +38,21 @@ Map<String, Object?> _stop(String reason) => {
 };
 
 void main() {
-  test('listModels returns the model ids', () async {
+  test('listModels returns ids with display names', () async {
     late http.Request sent;
     final anthropic = _client((req) async {
       sent = req;
       return _json({
         'data': [
-          {'id': 'model-b', 'display_name': 'B'},
-          {'id': 'model-a', 'display_name': 'A'},
+          {'id': 'model-b', 'display_name': 'Model B'},
+          {'id': 'model-a'},
         ],
       });
     });
-    expect(await anthropic.listModels(), ['model-b', 'model-a']);
+    expect(await anthropic.listModels(), [
+      (id: 'model-b', name: 'Model B', main: true),
+      (id: 'model-a', name: 'model-a', main: true),
+    ]);
     expect(sent.url.path, '/v1/models');
     expect(sent.headers['x-api-key'], 'test-key');
     expect(sent.headers['anthropic-version'], isNotEmpty);

@@ -19,6 +19,7 @@ import 'settings_screen.dart';
 import 'share_receiver.dart';
 import 'share_sheet.dart';
 import 'trash_screen.dart';
+import 'menu.dart';
 
 /// The app's first screen: every folder and recording in the library.
 class LibraryScreen extends StatefulWidget {
@@ -318,18 +319,28 @@ class _LibraryScreenState extends State<LibraryScreen>
               icon: const Icon(Icons.add),
               onPressed: () => _onLibraryAction(LibraryAction.import),
             ),
-            PopupMenuButton<LibraryAction>(
-              onSelected: _onLibraryAction,
-              itemBuilder: (context) => const [
-                PopupMenuItem(
-                  value: LibraryAction.newFolder,
-                  child: Text('New folder'),
-                ),
-                PopupMenuItem(value: LibraryAction.trash, child: Text('Trash')),
-                PopupMenuItem(
-                  value: LibraryAction.settings,
-                  child: Text('Settings'),
-                ),
+            MenuButton(
+              tooltip: 'More options',
+              groups: [
+                [
+                  menuEntry(
+                    Icons.create_new_folder_outlined,
+                    'New folder',
+                    () => _onLibraryAction(LibraryAction.newFolder),
+                  ),
+                ],
+                [
+                  menuEntry(
+                    Icons.delete_outline,
+                    'Trash',
+                    () => _onLibraryAction(LibraryAction.trash),
+                  ),
+                  menuEntry(
+                    Icons.settings_outlined,
+                    'Settings',
+                    () => _onLibraryAction(LibraryAction.settings),
+                  ),
+                ],
               ],
             ),
           ],

@@ -12,3 +12,7 @@ ColorScheme darkVariant(ColorScheme scheme) =>
 /// The app's color scheme for [brightness].
 ColorScheme appColorScheme(Brightness brightness) =>
     .fromSeed(seedColor: Colors.teal, brightness: brightness);
+
+/// Whether this phone offers colors from its wallpaper. Set when the app
+/// starts.
+bool wallpaperColorsAvailable = true;

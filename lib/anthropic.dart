@@ -33,7 +33,8 @@ class AnthropicClient {
   };
 
   /// Model ids available to the key, newest first as the API returns them.
-  Future<List<String>> listModels() async {
+  /// The models, newest first as the API lists them.
+  Future<List<ModelInfo>> listModels() async {
     final res = await client.get(
       Uri.parse('$baseUrl/v1/models?limit=1000'),
       headers: _headers,
@@ -41,7 +42,14 @@ class AnthropicClient {
     _check(res);
     final data = _json(res)['data'] as List? ?? const [];
     return [
-      for (final m in data.cast<Map<String, dynamic>>()) m['id'] as String,
+      for (final m in data.cast<Map<String, dynamic>>())
+        (
+          id: m['id'] as String,
+          name: (m['display_name'] as String?)?.trim().isNotEmpty == true
+              ? (m['display_name'] as String).trim()
+              : m['id'] as String,
+          main: true,
+        ),
     ];
   }
 

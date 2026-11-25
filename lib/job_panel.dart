@@ -5,11 +5,48 @@ import 'language_editor.dart';
 import 'language_lookup.dart';
 import 'languages.dart';
 import 'prompts.dart';
+import 'sheet.dart';
 
-const _addLanguage = '';
+/// Asks for a language from [languages], leaving out [exclude], with
+/// [current] ticked, in a sheet that can also add a language. Resolves to the
+/// code, or null when cancelled.
+Future<String?> pickLanguage(
+  BuildContext context,
+  LanguageList languages,
+  LanguageLookup lookup, {
+  String? current,
+  Set<String> exclude = const {},
+}) async {
+  const add = '';
+  final code = await showSheet<String>(
+    context,
+    builder: (context) => SheetBody(
+      title: 'Language',
+      children: [
+        for (final l in languages.all)
+          if (!exclude.contains(l.code))
+            SheetOption(
+              title: l.name,
+              subtitle: l.script,
+              selected: l.code == current,
+              onTap: () => Navigator.pop(context, l.code),
+            ),
+        const SheetDivider(),
+        SheetOption(
+          leading: const Icon(Icons.add),
+          title: 'Add language…',
+          onTap: () => Navigator.pop(context, add),
+        ),
+      ],
+    ),
+  );
+  if (code == null || !context.mounted) return null;
+  if (code != add) return code;
+  return (await showLanguageEditor(context, languages, lookup))?.code;
+}
 
-/// Picks a code from [languages], leaving out [exclude], with an entry at the
-/// end that adds one.
+/// Picks a code from [languages], leaving out [exclude], in a sheet that
+/// can also add a language.
 class LanguageDropdown extends StatelessWidget {
   const LanguageDropdown({
     super.key,
@@ -28,6 +65,17 @@ class LanguageDropdown extends StatelessWidget {
   final ValueChanged<String> onChanged;
   final Set<String> exclude;
 
+  Future<void> _pick(BuildContext context, String? current) async {
+    final code = await pickLanguage(
+      context,
+      languages,
+      lookup,
+      current: current,
+      exclude: exclude,
+    );
+    if (code != null) onChanged(code);
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -37,29 +85,14 @@ class LanguageDropdown extends StatelessWidget {
           for (final l in languages.all)
             if (!exclude.contains(l.code)) l,
         ];
-        return DropdownButton<String>(
-          value: shown.any((l) => l.code == value)
-              ? value
-              : shown.any((l) => l.code == defaultLang)
-              ? defaultLang
-              : shown.firstOrNull?.code,
-          items: [
-            for (final l in shown)
-              DropdownMenuItem(value: l.code, child: Text(l.name)),
-            const DropdownMenuItem(
-              value: _addLanguage,
-              child: Text('Add language…'),
-            ),
-          ],
-          onChanged: (code) async {
-            if (code == null) return;
-            if (code != _addLanguage) {
-              onChanged(code);
-              return;
-            }
-            final added = await showLanguageEditor(context, languages, lookup);
-            if (added != null) onChanged(added.code);
-          },
+        final current = shown.any((l) => l.code == value)
+            ? value
+            : shown.any((l) => l.code == defaultLang)
+            ? defaultLang
+            : shown.firstOrNull?.code;
+        return PickerButton(
+          label: current == null ? 'Choose' : languages.resolve(current).name,
+          onPressed: () => _pick(context, current),
         );
       },
     );
@@ -448,11 +481,21 @@ class BulletLine extends StatelessWidget {
 /// A thin row above generated content: what it is on the left, the actions
 /// for it on the right.
 class ActionStrip extends StatelessWidget {
-  const ActionStrip({super.key, this.info, this.hint, required this.actions});
+  const ActionStrip({
+    super.key,
+    this.info,
+    this.hint,
+    required this.actions,
+    this.scrolledUnder = false,
+  });
 
   final String? info;
   final String? hint;
   final List<Widget> actions;
+
+  /// Whether content below has scrolled up under the strip, which then
+  /// shows its lower edge.
+  final bool scrolledUnder;
 
   @override
   Widget build(BuildContext context) {
@@ -460,26 +503,45 @@ class ActionStrip extends StatelessWidget {
     final muted = theme.textTheme.labelSmall?.copyWith(
       color: theme.colorScheme.onSurfaceVariant,
     );
-    return Material(
-      color: theme.colorScheme.surfaceContainerLow,
-      child: Padding(
-        padding: const EdgeInsets.only(left: 16, right: 4),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: .start,
-                mainAxisSize: .min,
-                children: [
-                  if (info != null)
-                    Text(info!, style: theme.textTheme.labelMedium),
-                  if (hint != null)
-                    Text(hint!, style: muted, maxLines: 1, overflow: .ellipsis),
-                ],
+    final scheme = theme.colorScheme;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      decoration: BoxDecoration(
+        color: scrolledUnder
+            ? scheme.surfaceContainer
+            : scheme.surfaceContainerLow,
+        border: Border(
+          bottom: BorderSide(
+            color: scrolledUnder ? scheme.outlineVariant : Colors.transparent,
+          ),
+        ),
+      ),
+      child: Material(
+        type: MaterialType.transparency,
+        child: Padding(
+          padding: const EdgeInsets.only(left: 16, right: 4),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: .start,
+                  mainAxisSize: .min,
+                  children: [
+                    if (info != null)
+                      Text(info!, style: theme.textTheme.labelMedium),
+                    if (hint != null)
+                      Text(
+                        hint!,
+                        style: muted,
+                        maxLines: 1,
+                        overflow: .ellipsis,
+                      ),
+                  ],
+                ),
               ),
-            ),
-            ...actions,
-          ],
+              ...actions,
+            ],
+          ),
         ),
       ),
     );

@@ -91,3 +91,7 @@ class TextGenerator {
     };
   }
 }
+
+/// A model a provider offers: its [id], the [name] it shows people, and
+/// whether it is one of the [main] models a list shows first.
+typedef ModelInfo = ({String id, String name, bool main});

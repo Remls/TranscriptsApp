@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import 'playback.dart';
 import 'session.dart';
 import 'srt.dart';
+import 'menu.dart';
 
 String _speedLabel(double speed) {
   final text = speed == speed.roundToDouble()
@@ -148,22 +149,38 @@ class _PositionBarState extends State<PositionBar> {
 
 /// The playback speed of [session], with a menu of [playbackSpeeds].
 class SpeedButton extends StatelessWidget {
-  const SpeedButton({super.key, required this.session});
+  const SpeedButton({
+    super.key,
+    required this.session,
+    this.onOpen,
+    this.onClose,
+  });
 
   final Session session;
+
+  /// Called when the speed menu opens and closes.
+  final VoidCallback? onOpen;
+  final VoidCallback? onClose;
 
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: session,
       builder: (context, _) {
-        return PopupMenuButton<double>(
+        return MenuButton(
           tooltip: 'Playback speed',
-          initialValue: session.speed,
-          onSelected: session.setSpeed,
-          itemBuilder: (context) => [
-            for (final s in playbackSpeeds)
-              PopupMenuItem(value: s, child: Text(_speedLabel(s))),
+          onOpen: onOpen,
+          onClose: onClose,
+          groups: [
+            [
+              for (final s in playbackSpeeds)
+                menuEntry(
+                  null,
+                  _speedLabel(s),
+                  () => session.setSpeed(s),
+                  selected: s == session.speed,
+                ),
+            ],
           ],
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),

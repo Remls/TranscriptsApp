@@ -5,6 +5,8 @@ import 'library.dart';
 import 'note_editor.dart';
 import 'ruby.dart';
 import 'session.dart';
+import 'srt.dart';
+import 'sheet.dart';
 import 'transcript_edits.dart';
 import 'transcript_view.dart';
 
@@ -34,14 +36,26 @@ void _edit(
   }
 }
 
-enum _LineAction {
-  select,
-  editText,
-  changeSpeaker,
-  renameSpeaker,
-  addNote,
-  delete,
+/// What the line sheet asks for.
+sealed class _LineResult {
+  const _LineResult();
 }
+
+class _Simple extends _LineResult {
+  const _Simple(this.action);
+
+  final _LineAction action;
+}
+
+/// Give the line to [to], over [scope].
+class _NewSpeaker extends _LineResult {
+  const _NewSpeaker(this.to, this.scope);
+
+  final String to;
+  final _Scope scope;
+}
+
+enum _LineAction { select, editText, renameSpeaker, addNote, delete }
 
 /// The actions for line [item] of cue [cue] in the transcript, or in the
 /// translation into [translation] when given. [onSelect] starts selecting
@@ -60,81 +74,295 @@ Future<void> showLineActions(
   final rtl = session.languages
       .resolve(translation ?? session.recording!.lang)
       .rtl;
-  final action = await showModalBottomSheet<_LineAction>(
-    context: context,
-    showDragHandle: true,
-    builder: (context) => SafeArea(
+  final result = await showSheet<_LineResult>(
+    context,
+    builder: (context) => _LineSheet(
+      session: session,
+      text: line.text,
+      rtl: lineIsRtl(line.text, rtl: rtl),
+      time: cues[cue].start,
+      speaker: speaker,
+    ),
+  );
+  if (result == null || !context.mounted) return;
+  switch (result) {
+    case _NewSpeaker(:final to, :final scope):
+      _edit(context, session, (e) {
+        switch (scope) {
+          case _Scope.line:
+            e.setLineSpeaker(cue, item, to);
+          case _Scope.onward:
+            e.remapSpeakers({speaker!: to}, fromCue: cue, fromItem: item);
+          case _Scope.swapOnward:
+            e.remapSpeakers(
+              {speaker!: to, to: speaker},
+              fromCue: cue,
+              fromItem: item,
+            );
+        }
+      });
+    case _Simple(:final action):
+      switch (action) {
+        case _LineAction.select:
+          onSelect();
+        case _LineAction.editText:
+          await _editText(context, session, translation, cue, item, line.text);
+        case _LineAction.renameSpeaker:
+          await renameSpeaker(context, session, speaker!);
+        case _LineAction.addNote:
+          await editNote(context, session, at: cues[cue].start);
+        case _LineAction.delete:
+          await deleteLines(context, session, [(cue, item)]);
+      }
+  }
+}
+
+/// The line sheet: a preview of the line and its actions, then, for a new
+/// speaker, the speaker and how far the change runs. Pops with a
+/// [_LineResult].
+class _LineSheet extends StatefulWidget {
+  const _LineSheet({
+    required this.session,
+    required this.text,
+    required this.rtl,
+    required this.time,
+    required this.speaker,
+  });
+
+  final Session session;
+  final String text;
+  final bool rtl;
+  final double time;
+  final String? speaker;
+
+  @override
+  State<_LineSheet> createState() => _LineSheetState();
+}
+
+class _LineSheetState extends State<_LineSheet> {
+  /// Which step shows: the actions, the speakers, or the scope for [_to].
+  var _step = 0;
+  String? _to;
+
+  void _done(_LineResult result) => Navigator.pop(context, result);
+
+  void _pick(String to) {
+    final from = widget.speaker;
+    if (from == null) {
+      _done(_NewSpeaker(to, _Scope.line));
+    } else if (to != from) {
+      setState(() {
+        _to = to;
+        _step = 2;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final session = widget.session;
+    final speaker = widget.speaker;
+    switch (_step) {
+      case 1:
+        return SheetBody(
+          title: 'Who says this line?',
+          onBack: () => setState(() => _step = 0),
+          children: _speakerOptions(
+            session,
+            current: speaker,
+            onPick: _pick,
+            allowNew: true,
+          ),
+        );
+      case 2:
+        final from = _speakerLabel(session, speaker!);
+        final to = _speakerLabel(session, _to!);
+        final exists = speakerLineCounts(
+          session.cues,
+          session.speakerOverrides,
+        ).containsKey(_to);
+        return SheetBody(
+          title: 'Change $from to $to',
+          onBack: () => setState(() => _step = 1),
+          children: [
+            SheetOption(
+              title: 'Only this line',
+              onTap: () => _done(_NewSpeaker(_to!, _Scope.line)),
+            ),
+            SheetOption(
+              title: '$from\'s lines from here to the end',
+              subtitle: 'Every line of $from from this one on becomes $to.',
+              onTap: () => _done(_NewSpeaker(_to!, _Scope.onward)),
+            ),
+            if (exists)
+              SheetOption(
+                title: 'Swap the two from here to the end',
+                subtitle:
+                    'From this line on, $from becomes $to and $to becomes '
+                    '$from.',
+                onTap: () => _done(_NewSpeaker(_to!, _Scope.swapOnward)),
+              ),
+          ],
+        );
+    }
+    void act(_LineAction action) => _done(_Simple(action));
+    return SheetBody(
+      header: _LinePreview(
+        session: session,
+        text: widget.text,
+        rtl: widget.rtl,
+        time: widget.time,
+        speaker: speaker,
+      ),
+      children: [
+        Row(
+          crossAxisAlignment: .start,
+          children: [
+            for (final (icon, label, onPressed) in [
+              (
+                Icons.edit_outlined,
+                'Edit text',
+                () => act(_LineAction.editText),
+              ),
+              (
+                Icons.record_voice_over_outlined,
+                'Change speaker',
+                () => setState(() => _step = 1),
+              ),
+              (
+                Icons.note_add_outlined,
+                'Add note',
+                () => act(_LineAction.addNote),
+              ),
+              (Icons.checklist, 'Select lines', () => act(_LineAction.select)),
+            ])
+              Expanded(
+                child: SheetAction(
+                  icon: icon,
+                  label: label,
+                  onPressed: onPressed,
+                ),
+              ),
+          ],
+        ),
+        const SheetDivider(),
+        if (speaker != null)
+          SheetOption(
+            leading: const Icon(Icons.badge_outlined),
+            title: 'Rename ${_speakerLabel(session, speaker)}',
+            onTap: () => act(_LineAction.renameSpeaker),
+          ),
+        SheetOption(
+          leading: const Icon(Icons.delete_outline),
+          title: 'Delete line',
+          destructive: true,
+          onTap: () => act(_LineAction.delete),
+        ),
+      ],
+    );
+  }
+}
+
+/// The line a sheet acts on: its speaker, time and text.
+class _LinePreview extends StatelessWidget {
+  const _LinePreview({
+    required this.session,
+    required this.text,
+    required this.rtl,
+    required this.time,
+    required this.speaker,
+  });
+
+  final Session session;
+  final String text;
+  final bool rtl;
+  final double time;
+  final String? speaker;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final speaker = this.speaker;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: Column(
-        mainAxisSize: .min,
+        crossAxisAlignment: .stretch,
         children: [
-          ListTile(
-            title: Text(
-              line.text,
-              maxLines: 2,
-              overflow: .ellipsis,
-              textDirection: lineIsRtl(line.text, rtl: rtl) ? .rtl : .ltr,
-            ),
-            subtitle: speaker == null
-                ? null
-                : Text(_speakerLabel(session, speaker)),
+          Row(
+            children: [
+              if (speaker != null) ...[
+                SpeakerAvatar(session: session, speaker: speaker, radius: 12),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _speakerLabel(session, speaker),
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: speakerColor(speaker),
+                    ),
+                  ),
+                ),
+              ] else
+                const Spacer(),
+              Text(
+                formatClock(time),
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
           ),
-          ListTile(
-            leading: const Icon(Icons.checklist),
-            title: const Text('Select multiple lines'),
-            onTap: () => Navigator.pop(context, _LineAction.select),
-          ),
-          ListTile(
-            leading: const Icon(Icons.edit_outlined),
-            title: const Text('Edit text'),
-            onTap: () => Navigator.pop(context, _LineAction.editText),
-          ),
-          ListTile(
-            leading: const Icon(Icons.swap_horiz),
-            title: const Text('Change speaker'),
-            onTap: () => Navigator.pop(context, _LineAction.changeSpeaker),
-          ),
-          ListTile(
-            leading: const Icon(Icons.note_add_outlined),
-            title: const Text('Add note here'),
-            onTap: () => Navigator.pop(context, _LineAction.addNote),
-          ),
-          if (speaker != null)
-            ListTile(
-              leading: const Icon(Icons.badge_outlined),
-              title: Text('Rename ${_speakerLabel(session, speaker)}'),
-              onTap: () => Navigator.pop(context, _LineAction.renameSpeaker),
-            ),
-          ListTile(
-            leading: const Icon(Icons.delete_outline),
-            title: const Text('Delete line'),
-            onTap: () => Navigator.pop(context, _LineAction.delete),
+          const SizedBox(height: 8),
+          Text(
+            text,
+            maxLines: 4,
+            overflow: .ellipsis,
+            textDirection: rtl ? .rtl : .ltr,
+            style: theme.textTheme.bodyLarge,
           ),
         ],
       ),
-    ),
-  );
-  if (action == null || !context.mounted) return;
-  switch (action) {
-    case _LineAction.select:
-      onSelect();
-    case _LineAction.editText:
-      await _editText(context, session, translation, cue, item, line.text);
-    case _LineAction.changeSpeaker:
-      final picked = await _pickSpeaker(
-        context,
-        session,
-        title: 'Who says this line?',
-        current: speaker,
-        allowNew: true,
-      );
-      if (picked == null || picked == speaker || !context.mounted) return;
-      await _changeSpeaker(context, session, cue, item, speaker, picked);
-    case _LineAction.renameSpeaker:
-      await renameSpeaker(context, session, speaker!);
-    case _LineAction.addNote:
-      await editNote(context, session, at: cues[cue].start);
-    case _LineAction.delete:
-      await deleteLines(context, session, [(cue, item)]);
+    );
+  }
+}
+
+/// A speaker's colored circle, with their name's first letter or their
+/// number.
+class SpeakerAvatar extends StatelessWidget {
+  const SpeakerAvatar({
+    super.key,
+    required this.session,
+    required this.speaker,
+    this.radius = 18,
+  });
+
+  final Session session;
+  final String speaker;
+  final double radius;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = speakerColor(speaker);
+    final name = session.speakerNames[speaker]?.trim();
+    final mark = name == null || name.isEmpty
+        ? speaker
+        : name.characters.first.toUpperCase();
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: color,
+      child: Text(
+        mark,
+        style: TextStyle(
+          color: color.computeLuminance() > 0.5 ? Colors.black : Colors.white,
+          fontSize: radius * 0.9,
+          fontWeight: .w600,
+        ),
+      ),
+    );
   }
 }
 
@@ -187,67 +415,6 @@ Future<bool> deleteLines(
 }
 
 enum _Scope { line, onward, swapOnward }
-
-/// Gives line [item] of cue [cue] to [to]. When the line has a speaker, asks
-/// whether the change covers only this line or runs to the end.
-Future<void> _changeSpeaker(
-  BuildContext context,
-  Session session,
-  int cue,
-  int item,
-  String? from,
-  String to,
-) async {
-  var scope = _Scope.line;
-  if (from != null) {
-    final fromLabel = _speakerLabel(session, from);
-    final toLabel = _speakerLabel(session, to);
-    final exists = speakerLineCounts(
-      session.cues,
-      session.speakerOverrides,
-    ).containsKey(to);
-    final chosen = await showDialog<_Scope>(
-      context: context,
-      builder: (context) => SimpleDialog(
-        title: Text('Change $fromLabel to $toLabel'),
-        children: [
-          ListTile(
-            title: const Text('Only this line'),
-            onTap: () => Navigator.pop(context, _Scope.line),
-          ),
-          ListTile(
-            title: Text('$fromLabel\'s lines from here to the end'),
-            subtitle: Text(
-              'Every line of $fromLabel from this one on becomes $toLabel.',
-            ),
-            onTap: () => Navigator.pop(context, _Scope.onward),
-          ),
-          if (exists)
-            ListTile(
-              title: const Text('Swap the two from here to the end'),
-              subtitle: Text(
-                'From this line on, $fromLabel becomes $toLabel and '
-                '$toLabel becomes $fromLabel.',
-              ),
-              onTap: () => Navigator.pop(context, _Scope.swapOnward),
-            ),
-        ],
-      ),
-    );
-    if (chosen == null || !context.mounted) return;
-    scope = chosen;
-  }
-  _edit(context, session, (e) {
-    switch (scope) {
-      case _Scope.line:
-        e.setLineSpeaker(cue, item, to);
-      case _Scope.onward:
-        e.remapSpeakers({from!: to}, fromCue: cue, fromItem: item);
-      case _Scope.swapOnward:
-        e.remapSpeakers({from!: to, to: from}, fromCue: cue, fromItem: item);
-    }
-  });
-}
 
 Future<void> _editText(
   BuildContext context,
@@ -353,21 +520,35 @@ Future<void> renameSpeaker(
   _edit(context, session, (e) => e.setSpeakerName(speaker, name));
 }
 
-Widget _speakerTile(
-  Session session,
-  String speaker, {
-  Widget? trailing,
-  String? subtitle,
-  VoidCallback? onTap,
+/// One sheet row per speaker of the open recording, leaving out [exclude],
+/// with [current] ticked, and a row for a new speaker when [allowNew] is set.
+List<Widget> _speakerOptions(
+  Session session, {
+  String? current,
+  String? exclude,
+  bool allowNew = false,
+  required ValueChanged<String> onPick,
 }) {
-  return ListTile(
-    dense: true,
-    leading: CircleAvatar(radius: 8, backgroundColor: speakerColor(speaker)),
-    title: Text(_speakerLabel(session, speaker)),
-    subtitle: subtitle == null ? null : Text(subtitle),
-    trailing: trailing,
-    onTap: onTap,
-  );
+  final counts = speakerLineCounts(session.cues, session.speakerOverrides);
+  final speakers = counts.keys.where((s) => s != exclude).toList();
+  return [
+    for (final s in speakers)
+      SheetOption(
+        leading: SpeakerAvatar(session: session, speaker: s),
+        title: _speakerLabel(session, s),
+        subtitle: '${counts[s]} ${counts[s] == 1 ? 'line' : 'lines'}',
+        selected: s == current,
+        onTap: () => onPick(s),
+      ),
+    if (allowNew) ...[
+      const SheetDivider(),
+      SheetOption(
+        leading: const Icon(Icons.add),
+        title: 'New speaker',
+        onTap: () => onPick(nextSpeakerId([...counts.keys, ?exclude])),
+      ),
+    ],
+  ];
 }
 
 /// Lets the user choose one of the recording's speakers, or a new one when
@@ -380,31 +561,17 @@ Future<String?> _pickSpeaker(
   String? exclude,
   bool allowNew = false,
 }) {
-  final speakers = speakerLineCounts(
-    session.cues,
-    session.speakerOverrides,
-  ).keys.where((s) => s != exclude).toList();
-  return showDialog<String>(
-    context: context,
-    builder: (context) => SimpleDialog(
-      title: Text(title),
-      children: [
-        for (final s in speakers)
-          _speakerTile(
-            session,
-            s,
-            trailing: s == current ? const Icon(Icons.check) : null,
-            onTap: () => Navigator.pop(context, s),
-          ),
-        if (allowNew)
-          ListTile(
-            dense: true,
-            leading: const Icon(Icons.add, size: 18),
-            title: const Text('New speaker'),
-            onTap: () =>
-                Navigator.pop(context, nextSpeakerId([...speakers, ?exclude])),
-          ),
-      ],
+  return showSheet<String>(
+    context,
+    builder: (context) => SheetBody(
+      title: title,
+      children: _speakerOptions(
+        session,
+        current: current,
+        exclude: exclude,
+        allowNew: allowNew,
+        onPick: (s) => Navigator.pop(context, s),
+      ),
     ),
   );
 }
@@ -494,10 +661,8 @@ Future<void> _reset(BuildContext context, Session session) async {
 /// The open recording's speakers with their line counts, and the actions that
 /// apply to the whole recording.
 Future<void> showSpeakersSheet(BuildContext context, Session session) {
-  return showModalBottomSheet<void>(
-    context: context,
-    showDragHandle: true,
-    isScrollControlled: true,
+  return showSheet<void>(
+    context,
     builder: (sheetContext) => ListenableBuilder(
       listenable: session,
       builder: (sheetContext, _) {
@@ -505,48 +670,48 @@ Future<void> showSpeakersSheet(BuildContext context, Session session) {
           session.cues,
           session.speakerOverrides,
         );
-        return SafeArea(
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: .min,
-              children: [
-                ListTile(
-                  title: Text(
-                    'Speakers',
-                    style: Theme.of(sheetContext).textTheme.titleMedium,
-                  ),
+        final several = counts.length > 1;
+        final changed = session.speakerOverrides.isNotEmpty;
+        return SheetBody(
+          title: 'Speakers',
+          children: [
+            for (final MapEntry(key: speaker, value: lines) in counts.entries)
+              SheetOption(
+                leading: SpeakerAvatar(session: session, speaker: speaker),
+                title: _speakerLabel(session, speaker),
+                subtitle: '$lines ${lines == 1 ? 'line' : 'lines'}',
+                trailing: const Icon(Icons.edit_outlined),
+                onTap: () => renameSpeaker(context, session, speaker),
+              ),
+            if (several || changed)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (several) ...[
+                      FilledButton.tonalIcon(
+                        onPressed: () => _swap(context, session),
+                        icon: const Icon(Icons.swap_horiz),
+                        label: const Text('Swap'),
+                      ),
+                      FilledButton.tonalIcon(
+                        onPressed: () => _merge(context, session),
+                        icon: const Icon(Icons.merge),
+                        label: const Text('Merge'),
+                      ),
+                    ],
+                    if (changed)
+                      FilledButton.tonalIcon(
+                        onPressed: () => _reset(context, session),
+                        icon: const Icon(Icons.restart_alt),
+                        label: const Text('Reset changes'),
+                      ),
+                  ],
                 ),
-                for (final MapEntry(key: speaker, value: lines)
-                    in counts.entries)
-                  _speakerTile(
-                    session,
-                    speaker,
-                    subtitle: '$lines ${lines == 1 ? 'line' : 'lines'}',
-                    trailing: const Icon(Icons.edit_outlined, size: 18),
-                    onTap: () => renameSpeaker(context, session, speaker),
-                  ),
-                const Divider(),
-                ListTile(
-                  enabled: counts.length > 1,
-                  leading: const Icon(Icons.swap_horiz),
-                  title: const Text('Swap two speakers'),
-                  onTap: () => _swap(context, session),
-                ),
-                ListTile(
-                  enabled: counts.length > 1,
-                  leading: const Icon(Icons.merge),
-                  title: const Text('Merge one speaker into another'),
-                  onTap: () => _merge(context, session),
-                ),
-                ListTile(
-                  enabled: session.speakerOverrides.isNotEmpty,
-                  leading: const Icon(Icons.restart_alt),
-                  title: const Text('Reset speaker changes'),
-                  onTap: () => _reset(context, session),
-                ),
-              ],
-            ),
-          ),
+              ),
+          ],
         );
       },
     ),

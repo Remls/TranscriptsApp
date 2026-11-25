@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:transcripts/gemini.dart';
+import 'package:transcripts/text_generator.dart';
 
 const _base = 'https://gemini.test';
 
@@ -232,12 +233,48 @@ void main() {
             'supportedGenerationMethods': ['embedContent'],
           },
           {
-            'name': 'models/alpha',
+            'name': 'models/gemini-3.8-flash',
+            'displayName': 'Gemini 3.8 Flash',
             'supportedGenerationMethods': ['generateContent', 'countTokens'],
           },
         ],
       }),
     );
-    expect(await gemini.listModels(), ['alpha', 'zeta']);
+    expect(await gemini.listModels(), [
+      (id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash', main: true),
+      (id: 'zeta', name: 'zeta', main: false),
+    ]);
+  });
+
+  test('main Gemini models come first, newest and largest first', () {
+    ModelInfo m(String id) => (id: id, name: id, main: isMainGeminiModel(id));
+    final ids = [
+      'gemini-3.8-flash-lite',
+      'gemini-2.5-pro',
+      'gemini-3.8-flash-preview-tts',
+      'gemini-3.8-pro',
+      'gemma-4-27b',
+      'gemini-3.8-flash',
+      'gemini-3.8-flash-image',
+      'gemini-3.8-flash-live',
+    ];
+    expect(
+      [
+        for (final x in [
+          for (final id in ids) m(id),
+        ]..sort(compareGeminiModels))
+          x.id,
+      ],
+      [
+        'gemini-3.8-pro',
+        'gemini-3.8-flash',
+        'gemini-3.8-flash-lite',
+        'gemini-2.5-pro',
+        'gemini-3.8-flash-image',
+        'gemini-3.8-flash-live',
+        'gemini-3.8-flash-preview-tts',
+        'gemma-4-27b',
+      ],
+    );
   });
 }
