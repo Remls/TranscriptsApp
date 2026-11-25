@@ -76,13 +76,21 @@ void main() {
   test('prompts match the fixtures', () {
     String fixture(String name) =>
         File('test/fixtures/$name.txt').readAsStringSync();
-    for (final lang in ['dv', 'ja', 'en']) {
+    for (final lang in ['dv', 'ja']) {
       expect(
-        buildTranslationPrompt(shipped(lang)),
+        buildTranslationPrompt(shipped(lang), shipped('en')),
         fixture('translation_prompt_$lang'),
         reason: lang,
       );
     }
+    expect(
+      buildTranslationPrompt(shipped('en'), shipped('ja')),
+      fixture('translation_prompt_en_ja'),
+    );
+    expect(
+      buildTranslationPrompt(shipped('ja'), shipped('dv')),
+      fixture('translation_prompt_ja_dv'),
+    );
     expect(
       withBackground(
         '<prompt>\n',
@@ -143,10 +151,55 @@ void main() {
 
     expect(job.state, JobState.done);
     expect(sent, (
-      withBackground(buildTranslationPrompt(shipped('ja')), title: 'a'),
+      withBackground(
+        buildTranslationPrompt(shipped('ja'), shipped('en')),
+        title: 'a',
+      ),
       _srt,
     ));
     expect(read('.a/translation.srt'), 'translated\n');
+  });
+
+  test('a Japanese translation keeps its readings apart', () async {
+    final rec = touch('a.mp3');
+    touch('.a/transcript.srt', _srt);
+    touch('.a/lang', 'en\n');
+    late (String, String?) sent;
+    final job = TranslationJob(
+      library: library,
+      recording: rec,
+      generator: _gemini,
+      languages: LanguageList(root),
+      to: 'ja',
+      clientFactory: () => MockClient((req) async {
+        sent = _parts(req);
+        return _geminiText(
+          '```srt\n1\n00:00:01,000 --> 00:00:02,000\n｜東京《とうきょう》へ\n```',
+        );
+      }),
+    );
+    await job.run();
+
+    expect(job.state, JobState.done, reason: job.error);
+    expect(
+      sent.$1,
+      withBackground(
+        buildTranslationPrompt(shipped('en'), shipped('ja')),
+        title: 'a',
+      ),
+    );
+    expect(
+      read('.a/translation.ja.srt'),
+      '1\n00:00:01,000 --> 00:00:02,000\n東京へ\n',
+    );
+    expect(
+      read('.a/furigana.ja.srt'),
+      '1\n00:00:01,000 --> 00:00:02,000\n｜東京《とうきょう》へ\n',
+    );
+    expect(
+      File(p.join(root.path, '.a', 'translation.srt')).existsSync(),
+      isFalse,
+    );
   });
 
   test('translation sends the saved context note', () async {
@@ -170,7 +223,7 @@ void main() {
     expect(
       sent.$1,
       withBackground(
-        buildTranslationPrompt(shipped('ja')),
+        buildTranslationPrompt(shipped('ja'), shipped('en')),
         title: 'a',
         note: 'Two speakers.',
       ),
@@ -293,7 +346,10 @@ void main() {
 
       expect(j.state, JobState.done, reason: j.error);
       expect(prompts, [
-        withBackground(buildTranslationPrompt(shipped('dv')), title: 'a'),
+        withBackground(
+          buildTranslationPrompt(shipped('dv'), shipped('en')),
+          title: 'a',
+        ),
         folderFlatPrompt,
       ]);
       expect(read('set/.a/translation.srt'), _srt.replaceAll('one', 'uno'));

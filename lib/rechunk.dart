@@ -74,6 +74,7 @@ class SplitCarry {
     required this.problems,
     required this.transcript,
     required this.translations,
+    required this.translationFurigana,
     required this.furigana,
     required this.missingTranslations,
     required this.context,
@@ -98,6 +99,11 @@ class SplitCarry {
           for (final lang in mergedTranslationLangs(parts))
             lang: mergeTranslation(parts, mapping, lang),
       },
+      translationFurigana: {
+        if (ok)
+          for (final lang in mergedTranslationLangs(parts))
+            lang: ?mergeTranslationFurigana(parts, mapping, lang),
+      },
       furigana: ok && mergesFurigana(parts)
           ? mergeCues(parts, mapping, from: (p) => p.furigana)
           : null,
@@ -119,6 +125,9 @@ class SplitCarry {
 
   /// The translations by language, English first.
   final Map<String, List<Cue>> translations;
+
+  /// The carried translations that have readings, with them, by language.
+  final Map<String, List<Cue>> translationFurigana;
 
   /// The transcript with readings, when every recording has them.
   final List<Cue>? furigana;
@@ -390,6 +399,15 @@ class RechunkJob extends Job {
         library
             .translationFile(chunk, lang)
             .writeAsStringSync(formatSrt(translation));
+      }
+    }
+    for (final MapEntry(key: lang, value: cues)
+        in carry.translationFurigana.entries) {
+      final readings = cuesBetween(cues, start, end);
+      if (readings.isNotEmpty) {
+        library
+            .translationFuriganaFile(chunk, lang)
+            .writeAsStringSync(formatSrt(readings));
       }
     }
     library.writeContext(chunk, carry.context);

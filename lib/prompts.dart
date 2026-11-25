@@ -84,18 +84,49 @@ Output rules:
 - Render ${language.name} speech in ${language.script} only.
 - Render English speech in standard Latin/English script.
 - Do not translate. Preserve the original language of each word as spoken.
-${language.code == 'ja' ? '\n$_furigana\n' : ''}
+${hasReadings(language) ? '\n$_furigana\n' : ''}
 $_outputFormat
 
 $_timestampRules
 ''';
 }
 
-String buildTranslationPrompt(Language language) {
-  return '''You are translating an SRT subtitle file to English.
+const _translationFurigana = '''Readings (furigana):
+- After every word that contains kanji, give its reading in hiragana, in Aozora Bunko ruby notation: ｜word《reading》.
+- Mark whole words, including any kana inside them: ｜食べ《たべ》る, ｜東京《とうきょう》, ｜今日《きょう》.
+- Do not add readings to words without kanji.''';
 
-The input mixes ${language.name} (${language.script} script) and English code-switched speech.
+/// Whether text in [language] gets readings above its kanji.
+bool hasReadings(Language language) => language.code == 'ja';
 
+/// The prompt that translates an SRT file in [source] into [target].
+String buildTranslationPrompt(Language source, Language target) {
+  final toEnglish = target.code == englishLang;
+  final input = source.code == englishLang
+      ? 'The input is English speech.'
+      : 'The input mixes ${source.name} (${source.script} script) and '
+            'English code-switched speech.';
+  final notes = [
+    for (final line in target.notes.split('\n'))
+      if (line.trim().isNotEmpty) '- ${line.trim()}',
+  ];
+  final about = notes.isEmpty
+      ? ''
+      : '\nAbout ${target.name}, the language to translate into:\n'
+            '${notes.join('\n')}\n';
+  final rules = [
+    '- Translate ${source.name} to natural conversational ${target.name}.',
+    toEnglish
+        ? '- Keep English words/phrases as-is — do not re-translate them.'
+        : '- Translate English words and phrases to ${target.name} too.',
+    '- Aim for natural ${target.name}, not literal word-for-word.',
+    if (!toEnglish) '- Write ${target.name} in ${target.script}.',
+  ];
+  final readings = hasReadings(target) ? '\n$_translationFurigana\n' : '';
+  return '''You are translating an SRT subtitle file to ${target.name}.
+
+$input
+$about
 CRITICAL: Preserve the SRT structure EXACTLY:
 - Same number of cues, in the same order.
 - Same cue numbers.
@@ -103,10 +134,8 @@ CRITICAL: Preserve the SRT structure EXACTLY:
 - Same speaker labels (e.g. "Speaker 1:" prefixes).
 
 Translate the spoken text content:
-- Translate ${language.name} to natural conversational English.
-- Keep English words/phrases as-is — do not re-translate them.
-- Aim for natural English, not literal word-for-word.
-
+${rules.join('\n')}
+$readings
 Output ONLY the translated SRT. No preamble, no code fences, no commentary.
 ''';
 }

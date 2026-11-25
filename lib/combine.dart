@@ -21,6 +21,7 @@ class CombinePart {
     required this.lang,
     required this.transcript,
     this.translations = const {},
+    this.translationFurigana = const {},
     this.furigana,
     required this.names,
     required this.overrides,
@@ -48,6 +49,13 @@ class CombinePart {
             library.translationFile(file, lang).readAsStringSync(),
           ),
       },
+      translationFurigana: {
+        for (final lang in library.translationLangs(file))
+          if (library.translationFuriganaFile(file, lang).existsSync())
+            lang: parseSrt(
+              library.translationFuriganaFile(file, lang).readAsStringSync(),
+            ),
+      },
       furigana: cues(Sidecar.furigana),
       names: library.readStringMap(file, Sidecar.speakers),
       overrides: library.readStringMap(file, Sidecar.overrides),
@@ -65,6 +73,9 @@ class CombinePart {
 
   /// The translations by language, English first.
   final Map<String, List<Cue>> translations;
+
+  /// The translations that have readings, with them, by language.
+  final Map<String, List<Cue>> translationFurigana;
 
   /// The transcript with readings, when it has them.
   final List<Cue>? furigana;
@@ -196,6 +207,16 @@ List<Cue> mergeTranslation(
   SpeakerMapping mapping,
   String lang,
 ) => mergeCues(parts, mapping, from: (part) => part.translations[lang]);
+
+/// The parts' translations into [lang] with readings as one, when every part
+/// has them, else null.
+List<Cue>? mergeTranslationFurigana(
+  List<CombinePart> parts,
+  SpeakerMapping mapping,
+  String lang,
+) => parts.every((part) => part.translationFurigana.containsKey(lang))
+    ? mergeCues(parts, mapping, from: (part) => part.translationFurigana[lang])
+    : null;
 
 /// The parts' notes about themselves for the model, each one once, as one
 /// note.
@@ -500,6 +521,11 @@ class CombineJob extends Job {
         for (final lang in mergedTranslationLangs(parts))
           lang: formatSrt(mergeTranslation(parts, mapping, lang)),
       };
+      final translationFurigana = {
+        for (final lang in mergedTranslationLangs(parts))
+          if (mergeTranslationFurigana(parts, mapping, lang) case final cues?)
+            lang: formatSrt(cues),
+      };
       final context = joinedContext(parts);
       final furigana = mergesFurigana(parts)
           ? formatSrt(mergeCues(parts, mapping, from: (p) => p.furigana))
@@ -534,6 +560,10 @@ class CombineJob extends Job {
       }
       for (final MapEntry(key: lang, value: srt) in translations.entries) {
         library.translationFile(target, lang).writeAsStringSync(srt);
+      }
+      for (final MapEntry(key: lang, value: srt)
+          in translationFurigana.entries) {
+        library.translationFuriganaFile(target, lang).writeAsStringSync(srt);
       }
       library.writeContext(target, context);
       if (furigana != null) write(Sidecar.furigana, furigana);

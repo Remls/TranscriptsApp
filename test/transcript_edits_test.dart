@@ -147,6 +147,13 @@ void main() {
       '2\n01:02:03,004 --> 01:02:05,000\nplano\n\n'
       '3\n01:02:06,000 --> 01:02:07,000\nSpeaker 1: tres\n',
     );
+    library
+        .translationFuriganaFile(recording, 'ja')
+        .writeAsStringSync(
+          '1\n00:00:01,500 --> 00:00:04,000\nSpeaker 1: ｜一《いち》\nSpeaker 2: ｜二《に》\n\n'
+          '2\n01:02:03,004 --> 01:02:05,000\nふつう\n\n'
+          '3\n01:02:06,000 --> 01:02:07,000\nSpeaker 1: ｜三《さん》\n',
+        );
     translation('ja').writeAsStringSync(
       '1\n00:00:01,500 --> 00:00:04,000\nSpeaker 1: いち\nSpeaker 2: に\n\n'
       '2\n01:02:03,004 --> 01:02:05,000\nふつう\n\n'
@@ -164,6 +171,10 @@ void main() {
     expect(lines(sidecar(Sidecar.transcriptSrt)), ['two', 'three']);
     expect(lines(translation()), ['dos', 'tres']);
     expect(lines(translation('ja')), ['に', 'さん']);
+    expect(lines(library.translationFuriganaFile(recording, 'ja')), [
+      '｜二《に》',
+      '｜三《さん》',
+    ]);
     expect(sidecar(Sidecar.transcriptTxt).readAsStringSync(), contains('two'));
     expect(
       sidecar(Sidecar.transcriptTxt).readAsStringSync(),
@@ -202,5 +213,15 @@ void main() {
 
     editor.deleteLines([(1, 0)]);
     expect(lines(), ['｜一《いち》', 'changed', '｜三《さん》']);
+  });
+
+  test('editing a translation line drops its readings', () {
+    translation('ja')
+        .writeAsStringSync('1\n00:00:01,000 --> 00:00:02,000\n東京\n');
+    final readings = library.translationFuriganaFile(recording, 'ja')
+      ..writeAsStringSync('1\n00:00:01,000 --> 00:00:02,000\n｜東京《とうきょう》\n');
+    editor.setText(0, 0, '大阪', translation: 'ja');
+    expect(translation('ja').readAsStringSync(), contains('大阪'));
+    expect(readings.readAsStringSync(), contains('\n大阪\n'));
   });
 }

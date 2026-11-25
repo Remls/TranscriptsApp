@@ -134,6 +134,11 @@ class Library {
   File translationFile(File recording, String lang) =>
       _langFile(recording, 'translation', '.srt', lang);
 
+  /// [recording]'s translation into [lang] with readings in Aozora ruby
+  /// notation: `furigana.<lang>.srt`.
+  File translationFuriganaFile(File recording, String lang) =>
+      File(p.join(sidecarDir(recording).path, 'furigana.$lang.srt'));
+
   /// [recording]'s summary in [lang]: `summary.md` for English, else
   /// `summary.<lang>.md`.
   File summaryFile(File recording, String lang) =>

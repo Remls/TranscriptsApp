@@ -98,7 +98,7 @@ class Session extends ChangeNotifier {
   Recording? recording;
   List<Cue> cues = const [];
 
-  /// The language shown on the Translation and Summary tabs.
+  /// The language shown on the Translation tab.
   String translationLang = englishLang;
 
   /// The open recording's translation into [translationLang].
@@ -107,7 +107,11 @@ class Session extends ChangeNotifier {
   /// The transcript with readings above its kanji, or empty when it has none.
   List<Cue> furiganaCues = const [];
 
-  /// The open recording's summary in [translationLang].
+  /// The open recording's translation with readings above its kanji, or
+  /// empty when it has none.
+  List<Cue> translationFuriganaCues = const [];
+
+  /// The open recording's English summary.
   String? summary;
   List<Note> notes = const [];
   Map<String, String> speakerNames = const {};
@@ -121,9 +125,10 @@ class Session extends ChangeNotifier {
   /// plays.
   bool pictureUnavailable = false;
 
-  /// The latest job per kind and target, kept after it ends so its outcome
-  /// can be shown. The target is a recording's or folder's path.
-  final _jobs = <(JobKind, String), Job>{};
+  /// The latest job per kind, target and language, kept after it ends so its
+  /// outcome can be shown. The target is a recording's or folder's path. The
+  /// language is the one a translation is into, else null.
+  final _jobs = <(JobKind, String, String?), Job>{};
 
   /// Called when a job starts and when it ends, with its kind and target.
   void Function(JobKind kind, String target, Job job)? onJobStarted;
@@ -186,16 +191,24 @@ class Session extends ChangeNotifier {
   }
 
   /// The language [r] opens on: the preferred one when [r] has it or has
-  /// nothing translated or summarized, else the first it has.
+  /// no translation, else the first it has.
   String _firstTranslationLang(Recording r) {
-    final preferred = settings.translateLang;
-    final available = {...r.translations, ...r.summaries};
-    return available.isEmpty || available.contains(preferred)
+    final preferred = translateLangFor(r);
+    return r.translations.isEmpty || r.translations.contains(preferred)
         ? preferred
-        : available.first;
+        : r.translations.first;
   }
 
-  /// Shows the translation and summary in [lang].
+  /// The language preselected for translating [r]: the preferred one, or
+  /// another when that is [r]'s own language.
+  String translateLangFor(Recording r) {
+    final preferred = settings.translateLang;
+    if (preferred != r.lang && languages.contains(preferred)) return preferred;
+    if (r.lang != englishLang) return englishLang;
+    return languages.all.map((l) => l.code).firstWhere((c) => c != r.lang);
+  }
+
+  /// Shows the translation in [lang].
   void showTranslation(String lang) {
     if (lang == translationLang) return;
     translationLang = lang;
@@ -211,7 +224,11 @@ class Session extends ChangeNotifier {
         ? parseSrt(translation.readAsStringSync())
         : const [];
     furiganaCues = _readCues(file, Sidecar.furigana);
-    final summaryFile = library.summaryFile(file, translationLang);
+    final readings = library.translationFuriganaFile(file, translationLang);
+    translationFuriganaCues = readings.existsSync()
+        ? parseSrt(readings.readAsStringSync())
+        : const [];
+    final summaryFile = library.summaryFile(file, englishLang);
     summary = summaryFile.existsSync() ? summaryFile.readAsStringSync() : null;
     speakerNames = library.readStringMap(file, Sidecar.speakers);
     speakerOverrides = library.readStringMap(file, Sidecar.overrides);
@@ -231,6 +248,7 @@ class Session extends ChangeNotifier {
     cues = const [];
     translatedCues = const [];
     furiganaCues = const [];
+    translationFuriganaCues = const [];
     summary = null;
     notes = const [];
     loadError = null;
@@ -305,13 +323,15 @@ class Session extends ChangeNotifier {
     );
   }
 
-  Job? jobFor(JobKind kind, String target) => _jobs[(kind, target)];
+  /// The latest [kind] job on [target], into [lang] for a translation.
+  Job? jobFor(JobKind kind, String target, {String? lang}) =>
+      _jobs[(kind, target, lang)];
 
   bool isRunning(JobKind kind, String target) =>
       jobFor(kind, target)?.state == JobState.running;
 
-  void _start(JobKind kind, String target, Job job) {
-    _jobs[(kind, target)] = job;
+  void _start(JobKind kind, String target, Job job, {String? lang}) {
+    _jobs[(kind, target, lang)] = job;
     onJobStarted?.call(kind, target, job);
     notifyListeners();
     job.run().then((_) {
@@ -357,7 +377,9 @@ class Session extends ChangeNotifier {
     return null;
   }
 
-  String? startTranslation(Recording r) {
+  /// Starts translating [r] into [lang]. Returns a message instead when a
+  /// setting is missing.
+  String? startTranslation(Recording r, String lang) {
     final (generator, problem) = TextGenerator.fromSettings(settings);
     if (generator == null) return problem;
     _start(
@@ -368,7 +390,9 @@ class Session extends ChangeNotifier {
         recording: r.file,
         generator: generator,
         languages: languages,
+        to: lang,
       ),
+      lang: lang,
     );
     return null;
   }

@@ -450,18 +450,36 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
     ).then((_) => _refresh());
   }
 
-  /// English recordings need no translation tab.
-  List<_Tab> _tabsFor(Recording recording) => [
-    _Tab.transcript,
-    if (recording.lang != 'en') _Tab.translation,
-    _Tab.summary,
-  ];
+  List<_Tab> _tabsFor(Recording recording) => _Tab.values;
 
   bool _hasContent(Recording recording, _Tab tab) => switch (tab) {
     _Tab.transcript => recording.hasTranscript,
-    _Tab.translation => recording.hasTranslation,
+    _Tab.translation => recording.translations.contains(
+      _session.translationLang,
+    ),
     _Tab.summary => recording.hasSummary,
   };
+
+  /// The latest job behind [tab] of [recording], for the translation shown.
+  Job? _jobOn(Recording recording, _Tab tab) => _session.jobFor(
+    tab.kind,
+    recording.relPath,
+    lang: tab == _Tab.translation ? _session.translationLang : null,
+  );
+
+  /// The language a new translation of [recording] starts on: the preferred
+  /// one, else the first in the list that it has no translation into.
+  String _newTranslationLang(Recording recording) {
+    final preferred = _session.translateLangFor(recording);
+    if (!recording.translations.contains(preferred)) return preferred;
+    for (final l in _session.languages.all) {
+      if (l.code != recording.lang &&
+          !recording.translations.contains(l.code)) {
+        return l.code;
+      }
+    }
+    return preferred;
+  }
 
   /// The note typed for [recording], starting from its saved note.
   String _contextFor(Recording recording) {
@@ -473,16 +491,28 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
   }
 
   /// Starts the job behind [tab], reporting a missing setting or a failed
-  /// regeneration in a snackbar.
-  void _start(Recording recording, _Tab tab, {String? lang, String? note}) {
-    final hadContent = _hasContent(recording, tab);
+  /// regeneration in a snackbar. [into] starts a translation into a language
+  /// other than the one shown, which is shown while it runs and dropped again
+  /// if it does not finish.
+  void _start(
+    Recording recording,
+    _Tab tab, {
+    String? lang,
+    String? note,
+    String? into,
+  }) {
+    final previous = _session.translationLang;
+    final target = into ?? previous;
+    final hadContent = tab == _Tab.translation
+        ? recording.translations.contains(target)
+        : _hasContent(recording, tab);
     final problem = switch (tab) {
       _Tab.transcript => _session.startTranscription(
         recording,
         lang ?? _session.transcribeLang,
         context: note ?? _contextFor(recording),
       ),
-      _Tab.translation => _session.startTranslation(recording),
+      _Tab.translation => _session.startTranslation(recording, target),
       _Tab.summary => _session.startSummary(recording),
     };
     final messenger = ScaffoldMessenger.of(context);
@@ -496,12 +526,24 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
       );
       return;
     }
-    final job = _session.jobFor(tab.kind, recording.relPath)!;
+    if (tab == _Tab.translation) _session.showTranslation(target);
+    final job = _jobOn(recording, tab)!;
     void onChange() {
       if (job.state == JobState.running) return;
       job.removeListener(onChange);
       if (!mounted) return;
       _refresh();
+      if (target != previous && job.state != JobState.done) {
+        if (_session.translationLang == target) {
+          _session.showTranslation(previous);
+        }
+        if (job.state == JobState.failed) {
+          messenger.showSnackBar(
+            SnackBar(content: Text('${tab.label} failed: ${job.error}')),
+          );
+        }
+        return;
+      }
       if (job.state == JobState.failed && hadContent) {
         messenger.showSnackBar(
           SnackBar(content: Text('${tab.label} failed: ${job.error}')),
@@ -519,7 +561,10 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
     var note = _session.library.contextOf(recording.file);
     final confirmed = await confirmRegenerate(
       context,
-      what: tab.noun,
+      what: tab == _Tab.translation
+          ? '${_session.languages.resolve(_session.translationLang).name} '
+                'translation'
+          : tab.noun,
       options: tab != _Tab.transcript
           ? null
           : StatefulBuilder(
@@ -562,18 +607,29 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
   }
 
   /// The strip above a tab's content, with the actions that belong to it.
-  Widget _strip(Recording recording, _Tab tab) {
+  /// The strip above [tab]'s content. With [menuOnly], it holds just the
+  /// translation menu, for a translation that is not there yet.
+  Widget _strip(Recording recording, _Tab tab, {bool menuOnly = false}) {
+    if (menuOnly) {
+      return ActionStrip(actions: [_translationMenu(recording)]);
+    }
     final lines = switch (tab) {
       _Tab.transcript => _session.cues,
       _Tab.translation => _session.translatedCues,
       _Tab.summary => null,
     }?.fold(0, (sum, cue) => sum + cue.items.length);
     final furigana = _session.settings.readings;
+    final readings = switch (tab) {
+      _Tab.transcript => _session.furiganaCues,
+      _Tab.translation => _session.translationFuriganaCues,
+      _Tab.summary => const <Cue>[],
+    };
     return ActionStrip(
       info: lines == null ? null : '$lines ${lines == 1 ? 'line' : 'lines'}',
       hint: lines == null ? null : 'Long-press a line to edit',
       actions: [
-        if (tab == _Tab.transcript && _session.furiganaCues.isNotEmpty)
+        if (tab == _Tab.translation) _translationMenu(recording),
+        if (readings.isNotEmpty)
           IconButton(
             tooltip: furigana ? 'Hide furigana' : 'Show furigana',
             onPressed: () => _session.settings.setReadings(!furigana),
@@ -771,7 +827,7 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
   }
 
   Widget _tabBody(Recording recording, _Tab tab) {
-    final job = _session.jobFor(tab.kind, recording.relPath);
+    final job = _jobOn(recording, tab);
     final running = job?.state == JobState.running;
     final language = _session.languages.resolve(recording.lang);
     switch (tab) {
@@ -828,18 +884,41 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
           ],
         );
       case _Tab.translation:
-        if (!recording.hasTranslation || running) {
-          return JobPanel(
+        final target = _session.languages.resolve(_session.translationLang);
+        if (!_hasContent(recording, tab) || running) {
+          final panel = JobPanel(
             icon: Icons.translate,
-            title: 'No English translation yet',
+            title: 'No translation yet',
             actionLabel: 'Translate',
             job: job,
+            outputRtl: target.rtl,
+            showOutput: stripRuby,
             note: recording.hasTranscript
                 ? null
                 : 'Transcribe this recording first',
+            options: recording.hasTranscript
+                ? LanguageRow(
+                    label: 'Language',
+                    languages: _session.languages,
+                    lookup: _session.languageLookup,
+                    value: target.code,
+                    exclude: {recording.lang},
+                    onChanged: (code) {
+                      _session.settings.setTranslateLang(code);
+                      _session.showTranslation(code);
+                    },
+                  )
+                : null,
             onStart: recording.hasTranscript
                 ? () => _start(recording, tab)
                 : null,
+          );
+          if (!recording.hasTranslation) return panel;
+          return Column(
+            children: [
+              _strip(recording, tab, menuOnly: true),
+              Expanded(child: panel),
+            ],
           );
         }
         return Column(
@@ -855,9 +934,9 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
       case _Tab.summary:
         final summary = _session.summary;
         if (summary == null || running) {
-          final ready = recording.lang == 'en'
+          final ready = recording.lang == englishLang
               ? recording.hasTranscript
-              : recording.hasTranslation;
+              : recording.translations.contains(englishLang);
           return JobPanel(
             icon: Icons.summarize_outlined,
             title: 'No summary yet',
@@ -867,7 +946,7 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
                 ? null
                 : recording.lang == 'en'
                 ? 'Transcribe this recording first'
-                : 'Translate this recording first',
+                : 'Translate this recording into English first',
             onStart: ready ? () => _start(recording, tab) : null,
           );
         }
@@ -878,6 +957,81 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
           ],
         );
     }
+  }
+
+  /// Switches between [recording]'s translations, or opens a new one.
+  Widget _translationMenu(Recording recording) {
+    const newTranslation = '';
+    final shown = _session.translationLang;
+    return PopupMenuButton<String>(
+      tooltip: 'Translation language',
+      onSelected: (code) => code == newTranslation
+          ? _newTranslation(recording)
+          : _session.showTranslation(code),
+      itemBuilder: (context) => [
+        for (final code in recording.translations)
+          CheckedPopupMenuItem(
+            value: code,
+            checked: code == shown,
+            child: Text(_session.languages.resolve(code).name),
+          ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(
+          value: newTranslation,
+          child: Text('New translation…'),
+        ),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+        child: Row(
+          mainAxisSize: .min,
+          children: [
+            Text(_session.languages.resolve(shown).name),
+            const Icon(Icons.arrow_drop_down),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Asks for a language [recording] has no translation into, then
+  /// translates it and shows that translation.
+  Future<void> _newTranslation(Recording recording) async {
+    final exclude = {recording.lang, ...recording.translations};
+    String? lang = _newTranslationLang(recording);
+    if (exclude.contains(lang)) lang = null;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('New translation'),
+          content: LanguageRow(
+            label: 'Language',
+            languages: _session.languages,
+            lookup: _session.languageLookup,
+            value: lang,
+            exclude: exclude,
+            onChanged: (code) => setDialogState(() => lang = code),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: lang == null
+                  ? null
+                  : () => Navigator.pop(context, true),
+              child: const Text('Translate'),
+            ),
+          ],
+        ),
+      ),
+    );
+    final chosen = lang;
+    if (confirmed != true || chosen == null || !mounted) return;
+    _session.settings.setTranslateLang(chosen);
+    _start(recording, _Tab.translation, into: chosen);
   }
 
   Widget _transcriptView(Recording recording) {
@@ -908,6 +1062,11 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
       key: ValueKey('${recording.relPath}:translation'),
       search: _highlightOn(recording, _Tab.translation),
       cues: _session.translatedCues,
+      readings:
+          _session.settings.readings &&
+              _session.translationFuriganaCues.isNotEmpty
+          ? _session.translationFuriganaCues
+          : null,
       notes: _session.notes,
       noteImage: _session.noteImageOf,
       onPictureTap: (picture) => showPicture(context, picture),

@@ -260,9 +260,10 @@ Future<void> _editText(
   final rtl = session.languages
       .resolve(translation ?? session.recording!.lang)
       .rtl;
-  final readings = session.furiganaCues;
+  final readings = translation == null
+      ? session.furiganaCues
+      : session.translationFuriganaCues;
   final hasReadings =
-      translation == null &&
       cue < readings.length &&
       item < readings[cue].items.length &&
       withReadings(current, readings[cue].items[item].text) != null;

@@ -8,6 +8,7 @@ import 'library.dart';
 import 'media_tools.dart';
 import 'notes.dart';
 import 'prompts.dart';
+import 'ruby.dart';
 import 'srt.dart';
 import 'text_generator.dart';
 import 'transcription_job.dart';
@@ -146,28 +147,41 @@ Future<String> _generate(
   return text;
 }
 
+/// Translates [recording]'s transcript into [to], storing the plain
+/// translation and, when the model adds readings, the translation with them.
 Future<void> translateRecording(
   Job job,
   Library library,
   File recording,
   TextGenerator generator,
-  LanguageList languages,
-) async {
+  LanguageList languages, {
+  String to = englishLang,
+}) async {
   final srt = library.sidecarFile(recording, Sidecar.transcriptSrt);
   if (!srt.existsSync()) throw const JobFailure('no source transcript');
   final out = await _generate(
     job,
     generator,
     prompt: _aboutRecording(
-      buildTranslationPrompt(languages.resolve(library.langOf(recording))),
+      buildTranslationPrompt(
+        languages.resolve(library.langOf(recording)),
+        languages.resolve(to),
+      ),
       library,
       recording,
     ),
     input: srt.readAsStringSync(),
   );
+  final withReadings = stripCodeFence(out);
   library
-      .translationFile(recording, englishLang)
-      .writeAsStringSync('${stripCodeFence(out)}\n');
+      .translationFile(recording, to)
+      .writeAsStringSync('${stripRuby(withReadings)}\n');
+  final readings = library.translationFuriganaFile(recording, to);
+  if (hasRuby(withReadings)) {
+    readings.writeAsStringSync('$withReadings\n');
+  } else if (readings.existsSync()) {
+    readings.deleteSync();
+  }
 }
 
 Future<void> summarizeRecording(
@@ -205,6 +219,7 @@ class TranslationJob extends Job {
     required this.recording,
     required this.generator,
     required this.languages,
+    this.to = englishLang,
     super.clientFactory,
   });
 
@@ -213,10 +228,22 @@ class TranslationJob extends Job {
   final TextGenerator generator;
   final LanguageList languages;
 
+  /// The language to translate into.
+  final String to;
+
   @override
   Future<void> perform() {
-    setStatus('Translating with ${generator.model}');
-    return translateRecording(this, library, recording, generator, languages);
+    setStatus(
+      'Translating into ${languages.resolve(to).name} with ${generator.model}',
+    );
+    return translateRecording(
+      this,
+      library,
+      recording,
+      generator,
+      languages,
+      to: to,
+    );
   }
 }
 

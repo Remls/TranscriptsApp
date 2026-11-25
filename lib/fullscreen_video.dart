@@ -427,7 +427,7 @@ class _FullscreenVideoState extends State<FullscreenVideo>
       ),
       (
         SubtitleMode.translation,
-        'Translation (${languages.resolve('en').name})',
+        'Translation (${languages.resolve(_session.translationLang).name})',
         _session.translatedCues.isNotEmpty,
       ),
     ];
@@ -538,18 +538,23 @@ class _FullscreenVideoState extends State<FullscreenVideo>
             .off => const [],
             _ => translated ? _session.translatedCues : _session.cues,
           },
-          readings:
-              mode == .transcript &&
-                  _session.settings.readings &&
-                  _session.furiganaCues.isNotEmpty
-              ? _session.furiganaCues
-              : null,
+          readings: !_session.settings.readings || mode == .off
+              ? null
+              : translated
+              ? _session.translationFuriganaCues.isEmpty
+                    ? null
+                    : _session.translationFuriganaCues
+              : _session.furiganaCues.isEmpty
+              ? null
+              : _session.furiganaCues,
           index: translated
               ? _session.translationActiveIndex
               : _session.activeIndex,
-          language: translated || recording == null
-              ? _session.languages.resolve('en')
-              : _session.languages.resolve(recording.lang),
+          language: _session.languages.resolve(
+            translated || recording == null
+                ? _session.translationLang
+                : recording.lang,
+          ),
           raised: _controlsShown,
           aspectRatio: widget.picture.controller.value.aspectRatio,
           speakerOverrides: translated ? const {} : _session.speakerOverrides,

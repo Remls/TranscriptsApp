@@ -8,7 +8,8 @@ import 'prompts.dart';
 
 const _addLanguage = '';
 
-/// Picks a code from [languages], with an entry at the end that adds one.
+/// Picks a code from [languages], leaving out [exclude], with an entry at the
+/// end that adds one.
 class LanguageDropdown extends StatelessWidget {
   const LanguageDropdown({
     super.key,
@@ -16,37 +17,51 @@ class LanguageDropdown extends StatelessWidget {
     required this.lookup,
     required this.value,
     required this.onChanged,
+    this.exclude = const {},
   });
 
   final LanguageList languages;
   final LanguageLookup lookup;
-  final String value;
+
+  /// The chosen code, or null for none.
+  final String? value;
   final ValueChanged<String> onChanged;
+  final Set<String> exclude;
 
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: languages,
-      builder: (context, _) => DropdownButton<String>(
-        value: languages.contains(value) ? value : defaultLang,
-        items: [
+      builder: (context, _) {
+        final shown = [
           for (final l in languages.all)
-            DropdownMenuItem(value: l.code, child: Text(l.name)),
-          const DropdownMenuItem(
-            value: _addLanguage,
-            child: Text('Add language…'),
-          ),
-        ],
-        onChanged: (code) async {
-          if (code == null) return;
-          if (code != _addLanguage) {
-            onChanged(code);
-            return;
-          }
-          final added = await showLanguageEditor(context, languages, lookup);
-          if (added != null) onChanged(added.code);
-        },
-      ),
+            if (!exclude.contains(l.code)) l,
+        ];
+        return DropdownButton<String>(
+          value: shown.any((l) => l.code == value)
+              ? value
+              : shown.any((l) => l.code == defaultLang)
+              ? defaultLang
+              : shown.firstOrNull?.code,
+          items: [
+            for (final l in shown)
+              DropdownMenuItem(value: l.code, child: Text(l.name)),
+            const DropdownMenuItem(
+              value: _addLanguage,
+              child: Text('Add language…'),
+            ),
+          ],
+          onChanged: (code) async {
+            if (code == null) return;
+            if (code != _addLanguage) {
+              onChanged(code);
+              return;
+            }
+            final added = await showLanguageEditor(context, languages, lookup);
+            if (added != null) onChanged(added.code);
+          },
+        );
+      },
     );
   }
 }
@@ -106,13 +121,17 @@ class LanguageRow extends StatelessWidget {
     required this.lookup,
     required this.value,
     required this.onChanged,
+    this.exclude = const {},
   });
 
   final String label;
   final LanguageList languages;
   final LanguageLookup lookup;
-  final String value;
+  final String? value;
   final ValueChanged<String> onChanged;
+
+  /// Languages left out of the choices.
+  final Set<String> exclude;
 
   @override
   Widget build(BuildContext context) {
@@ -126,6 +145,7 @@ class LanguageRow extends StatelessWidget {
           lookup: lookup,
           value: value,
           onChanged: onChanged,
+          exclude: exclude,
         ),
       ],
     );

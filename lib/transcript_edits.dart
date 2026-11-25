@@ -94,7 +94,7 @@ class TranscriptEditor {
 
   /// Replaces the text of line [item] of cue [cue] in the transcript, or in
   /// the translation into [translation] when given. Editing the transcript
-  /// also refreshes its plain-text copy, and the line loses its readings.
+  /// also refreshes its plain-text copy. The line loses its readings.
   void setText(int cue, int item, String rawText, {String? translation}) {
     final text = rawText.replaceAll(RegExp(r'\s*\n\s*'), ' ').trim();
     if (text.isEmpty) throw const LibraryException('Enter some text');
@@ -110,15 +110,16 @@ class TranscriptEditor {
       library
           .sidecarFile(recording, Sidecar.transcriptTxt)
           .writeAsStringSync(srtToPlaintext(srt));
-      final furigana = library.sidecarFile(recording, Sidecar.furigana);
-      if (furigana.existsSync()) {
-        final withReadings = _cues(Sidecar.furigana);
-        if (cue < withReadings.length &&
-            item < withReadings[cue].items.length) {
-          final items = withReadings[cue].items;
-          items[item] = CueItem(items[item].speaker, text);
-          furigana.writeAsStringSync(formatSrt(withReadings));
-        }
+    }
+    final furigana = translation == null
+        ? library.sidecarFile(recording, Sidecar.furigana)
+        : library.translationFuriganaFile(recording, translation);
+    if (furigana.existsSync()) {
+      final withReadings = _read(furigana);
+      if (cue < withReadings.length && item < withReadings[cue].items.length) {
+        final items = withReadings[cue].items;
+        items[item] = CueItem(items[item].speaker, text);
+        furigana.writeAsStringSync(formatSrt(withReadings));
       }
     }
   }
@@ -214,8 +215,10 @@ class TranscriptEditor {
         .writeAsStringSync(srtToPlaintext(srt));
 
     for (final file in [
-      for (final lang in library.translationLangs(recording))
+      for (final lang in library.translationLangs(recording)) ...[
         library.translationFile(recording, lang),
+        library.translationFuriganaFile(recording, lang),
+      ],
       library.sidecarFile(recording, Sidecar.furigana),
     ]) {
       if (!file.existsSync()) continue;

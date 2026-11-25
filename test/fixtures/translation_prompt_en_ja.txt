@@ -1,0 +1,22 @@
+You are translating an SRT subtitle file to Japanese.
+
+The input is English speech.
+
+CRITICAL: Preserve the SRT structure EXACTLY:
+- Same number of cues, in the same order.
+- Same cue numbers.
+- Same timestamps (do not modify the HH:MM:SS,mmm values).
+- Same speaker labels (e.g. "Speaker 1:" prefixes).
+
+Translate the spoken text content:
+- Translate English to natural conversational Japanese.
+- Translate English words and phrases to Japanese too.
+- Aim for natural Japanese, not literal word-for-word.
+- Write Japanese in Japanese (kanji + hiragana/katakana).
+
+Readings (furigana):
+- After every word that contains kanji, give its reading in hiragana, in Aozora Bunko ruby notation: ｜word《reading》.
+- Mark whole words, including any kana inside them: ｜食べ《たべ》る, ｜東京《とうきょう》, ｜今日《きょう》.
+- Do not add readings to words without kanji.
+
+Output ONLY the translated SRT. No preamble, no code fences, no commentary.
