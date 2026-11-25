@@ -521,6 +521,16 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
       : 'This translates the recording into '
             '${_session.languages.resolve(lang).name} first.';
 
+  /// Whether translating [recording] into [lang] would go better through
+  /// an English translation it does not have yet.
+  bool _suggestEnglish(Recording recording, String lang) =>
+      lang != englishLang &&
+      recording.lang != englishLang &&
+      !recording.translations.contains(englishLang);
+
+  static const _englishFirstNote =
+      'Translating to English first usually gives a better translation.';
+
   /// The note typed for [recording], starting from its saved note.
   String _contextFor(Recording recording) {
     if (_contextPath != recording.relPath) {
@@ -540,6 +550,7 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
     String? lang,
     String? note,
     String? into,
+    bool viaEnglish = false,
   }) {
     final previous = _shownLang(tab);
     final target = into ?? previous;
@@ -552,7 +563,11 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
         lang ?? _session.transcribeLang,
         context: note ?? _contextFor(recording),
       ),
-      _Tab.translation => _session.startTranslation(recording, target),
+      _Tab.translation => _session.startTranslation(
+        recording,
+        target,
+        viaEnglish: viaEnglish,
+      ),
       _Tab.summary => _session.startSummary(recording, target),
     };
     final messenger = ScaffoldMessenger.of(context);
@@ -931,6 +946,9 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
       case _Tab.translation:
         final target = _session.languages.resolve(_session.translationLang);
         if (!_hasContent(recording, tab) || running) {
+          final englishFirst =
+              recording.hasTranscript &&
+              _suggestEnglish(recording, target.code);
           final panel = JobPanel(
             icon: Icons.translate,
             title: 'No translation yet',
@@ -938,9 +956,17 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
             job: job,
             outputRtl: target.rtl,
             showOutput: stripRuby,
-            note: recording.hasTranscript
-                ? null
-                : 'Transcribe this recording first',
+            note: !recording.hasTranscript
+                ? 'Transcribe this recording first'
+                : englishFirst
+                ? _englishFirstNote
+                : null,
+            secondary: englishFirst
+                ? (
+                    'English first',
+                    () => _start(recording, tab, viaEnglish: true),
+                  )
+                : null,
             options: recording.hasTranscript
                 ? LanguageRow(
                     label: 'Language',
@@ -1097,12 +1123,19 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
   Future<void> _newInLanguage(Recording recording, _Tab tab) async {
     final summary = tab == _Tab.summary;
     String? lang = _newLang(recording, tab);
+    var viaEnglish = false;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) {
-          final note = summary && lang != null
+          final englishFirst =
+              !summary && lang != null && _suggestEnglish(recording, lang!);
+          final note = lang == null
+              ? null
+              : summary
               ? _summaryNote(recording, lang!)
+              : englishFirst
+              ? _englishFirstNote
               : null;
           return AlertDialog(
             title: Text('New ${tab.noun}'),
@@ -1119,6 +1152,17 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
                   onChanged: (code) => setDialogState(() => lang = code),
                 ),
                 if (note != null) ...[const SizedBox(height: 12), Text(note)],
+                if (englishFirst) ...[
+                  const SizedBox(height: 4),
+                  CheckboxListTile(
+                    value: viaEnglish,
+                    onChanged: (value) =>
+                        setDialogState(() => viaEnglish = value ?? false),
+                    title: const Text('Translate to English first'),
+                    controlAffinity: .leading,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ],
               ],
             ),
             actions: [
@@ -1139,7 +1183,12 @@ class _RecordingScreenState extends State<RecordingScreen> with RouteAware {
     );
     final chosen = lang;
     if (confirmed != true || chosen == null || !mounted) return;
-    _start(recording, tab, into: chosen);
+    _start(
+      recording,
+      tab,
+      into: chosen,
+      viaEnglish: !summary && viaEnglish && _suggestEnglish(recording, chosen),
+    );
   }
 
   Widget _transcriptView(Recording recording) {

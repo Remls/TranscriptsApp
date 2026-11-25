@@ -153,6 +153,8 @@ Future<String> _generate(
 
 /// Translates [recording]'s transcript into [to], storing the plain
 /// translation and, when the model adds readings, the translation with them.
+/// A recording in another language that has an English translation is
+/// translated from the English, with the transcript as a reference.
 Future<void> translateRecording(
   Job job,
   Library library,
@@ -163,18 +165,30 @@ Future<void> translateRecording(
 }) async {
   final srt = library.sidecarFile(recording, Sidecar.transcriptSrt);
   if (!srt.existsSync()) throw const JobFailure('no source transcript');
+  final lang = library.langOf(recording);
+  final english = library.translationFile(recording, englishLang);
+  final viaEnglish =
+      to != englishLang && lang != englishLang && english.existsSync();
   final out = await _generate(
     job,
     generator,
     prompt: _aboutRecording(
-      buildTranslationPrompt(
-        languages.resolve(library.langOf(recording)),
-        languages.resolve(to),
-      ),
+      viaEnglish
+          ? buildTranslationPrompt(
+              languages.resolve(englishLang),
+              languages.resolve(to),
+              original: languages.resolve(lang),
+            )
+          : buildTranslationPrompt(
+              languages.resolve(lang),
+              languages.resolve(to),
+            ),
       library,
       recording,
     ),
-    input: srt.readAsStringSync(),
+    input: viaEnglish
+        ? withOriginal(english.readAsStringSync(), srt.readAsStringSync())
+        : srt.readAsStringSync(),
   );
   final withReadings = stripCodeFence(out);
   library
@@ -229,6 +243,7 @@ class TranslationJob extends Job {
     required this.generator,
     required this.languages,
     this.to = englishLang,
+    this.viaEnglish = false,
     super.clientFactory,
   });
 
@@ -240,8 +255,15 @@ class TranslationJob extends Job {
   /// The language to translate into.
   final String to;
 
+  /// Whether to translate into English first and then from the English.
+  final bool viaEnglish;
+
   @override
-  Future<void> perform() {
+  Future<void> perform() async {
+    if (viaEnglish) {
+      setStatus('Translating into English with ${generator.model}');
+      await translateRecording(this, library, recording, generator, languages);
+    }
     setStatus(
       'Translating into ${languages.resolve(to).name} with ${generator.model}',
     );

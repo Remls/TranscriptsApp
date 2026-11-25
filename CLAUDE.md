@@ -82,6 +82,8 @@ Folders are one level deep. `lang` absent means `dv`. `furigana.srt` is the tran
 
 Translations and summaries are per language. English stays in `translation.srt` and `summary.md`, and other languages go in `translation.<code>.srt` and `summary.<code>.md`. A Japanese translation keeps its readings in `furigana.ja.srt`. `context.txt` is the user's note about the recording, sent with the transcription, translation and summary prompts along with the file name.
 
+A translation into a language other than English reads `translation.srt` when the recording is not English and has one, with the transcript after it as a reference (`withOriginal()`). Otherwise it reads the transcript. The empty Translation panel's "English first" button and the New translation dialog's "Translate to English first" checkbox write `translation.srt` in the same job before the target. Summaries that translate first follow the same rule and never add an English pass.
+
 ## Guards to keep
 
 - The three SRT timestamp guards: the clamp in `parseSrt`, the write-path cleanup `cleanModelSrt`, and the repair pass `repairSrtFile` on restore. They protect different points. Keep all three.

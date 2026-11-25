@@ -99,10 +99,33 @@ const _translationFurigana = '''Readings (furigana):
 /// Whether text in [language] gets readings above its kanji.
 bool hasReadings(Language language) => language.code == 'ja';
 
-/// The prompt that translates an SRT file in [source] into [target].
-String buildTranslationPrompt(Language source, Language target) {
+const _originalMarker = '--- ORIGINAL TRANSCRIPT ---';
+
+/// The input for a translation from an [english] SRT file, with the
+/// [original] transcript after it.
+String withOriginal(String english, String original) =>
+    '${english.trimRight()}\n\n$_originalMarker\n\n${original.trimRight()}\n';
+
+/// The prompt that translates an SRT file in [source] into [target]. With
+/// [original], the input is an English translation followed by the
+/// transcript it was translated from, in [original], as a reference.
+String buildTranslationPrompt(
+  Language source,
+  Language target, {
+  Language? original,
+}) {
   final toEnglish = target.code == englishLang;
-  final input = source.code == englishLang
+  final input = original != null
+      ? 'The input is an English translation of speech that mixes '
+            '${original.name} and English.\n\n'
+            'After the input, below the line "$_originalMarker", is the '
+            '${original.name} transcript it was translated from '
+            '(${original.script} script), for reference only:\n'
+            '- Use it for names, tone, and meaning the English translation '
+            'lost.\n'
+            '- Translate only the cues above that line. Do not output the '
+            'original.'
+      : source.code == englishLang
       ? 'The input is English speech.'
       : 'The input mixes ${source.name} (${source.script} script) and '
             'English code-switched speech.';

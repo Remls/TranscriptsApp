@@ -197,6 +197,7 @@ class JobPanel extends StatelessWidget {
     required this.job,
     this.note,
     this.options,
+    this.secondary,
     this.outputRtl = false,
     this.showOutput,
   });
@@ -216,6 +217,9 @@ class JobPanel extends StatelessWidget {
 
   /// Extra controls shown above the button.
   final Widget? options;
+
+  /// The label and action of a second button, before the main one.
+  final (String, VoidCallback)? secondary;
 
   /// Whether the streamed output reads right to left.
   final bool outputRtl;
@@ -258,7 +262,16 @@ class JobPanel extends StatelessWidget {
               ),
               const SizedBox(height: 16),
             ],
-            FilledButton(onPressed: onStart, child: Text(actionLabel)),
+            Wrap(
+              alignment: .center,
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (secondary case (final label, final onPressed))
+                  OutlinedButton(onPressed: onPressed, child: Text(label)),
+                FilledButton(onPressed: onStart, child: Text(actionLabel)),
+              ],
+            ),
             if (ended?.state == JobState.failed) ...[
               const SizedBox(height: 16),
               Text(

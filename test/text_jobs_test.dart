@@ -92,6 +92,14 @@ void main() {
       fixture('translation_prompt_ja_dv'),
     );
     expect(
+      buildTranslationPrompt(
+        shipped('en'),
+        shipped('ja'),
+        original: shipped('dv'),
+      ),
+      fixture('translation_prompt_en_ja_from_dv'),
+    );
+    expect(
       withBackground(
         '<prompt>\n',
         title: 'Title',
@@ -230,6 +238,118 @@ void main() {
         note: 'Two speakers.',
       ),
     );
+  });
+
+  test('translation reads the English translation when there is one', () async {
+    const english = '1\n00:00:01,000 --> 00:00:02,000\nSpeaker 1: hello\n';
+    final rec = touch('a.mp3');
+    touch('.a/transcript.srt', _srt);
+    touch('.a/translation.srt', english);
+    touch('.a/lang', 'ja\n');
+    late (String, String?) sent;
+    final job = TranslationJob(
+      library: library,
+      recording: rec,
+      generator: _gemini,
+      languages: LanguageList(root),
+      to: 'dv',
+      clientFactory: () => MockClient((req) async {
+        sent = _parts(req);
+        return _geminiText('translated');
+      }),
+    );
+    await job.run();
+
+    expect(job.state, JobState.done, reason: job.error);
+    expect(sent, (
+      withBackground(
+        buildTranslationPrompt(
+          shipped('en'),
+          shipped('dv'),
+          original: shipped('ja'),
+        ),
+        title: 'a',
+      ),
+      withOriginal(english, _srt),
+    ));
+    expect(
+      sent.$2,
+      '1\n00:00:01,000 --> 00:00:02,000\nSpeaker 1: hello\n\n'
+      '--- ORIGINAL TRANSCRIPT ---\n\n${_srt.trimRight()}\n',
+    );
+  });
+
+  test('translating via English writes English first', () async {
+    const english = '1\n00:00:01,000 --> 00:00:02,000\nSpeaker 1: hello\n';
+    final rec = touch('a.mp3');
+    touch('.a/transcript.srt', _srt);
+    touch('.a/lang', 'ja\n');
+    final sent = <(String, String?)>[];
+    final job = TranslationJob(
+      library: library,
+      recording: rec,
+      generator: _gemini,
+      languages: LanguageList(root),
+      to: 'dv',
+      viaEnglish: true,
+      clientFactory: () => MockClient((req) async {
+        sent.add(_parts(req));
+        return _geminiText(sent.length == 1 ? english : 'translated');
+      }),
+    );
+    await job.run();
+
+    expect(job.state, JobState.done, reason: job.error);
+    expect(sent, [
+      (
+        withBackground(
+          buildTranslationPrompt(shipped('ja'), shipped('en')),
+          title: 'a',
+        ),
+        _srt,
+      ),
+      (
+        withBackground(
+          buildTranslationPrompt(
+            shipped('en'),
+            shipped('dv'),
+            original: shipped('ja'),
+          ),
+          title: 'a',
+        ),
+        withOriginal(english, _srt),
+      ),
+    ]);
+    expect(read('.a/translation.srt'), english);
+    expect(read('.a/translation.dv.srt'), 'translated\n');
+  });
+
+  test('an English recording translates from its transcript', () async {
+    final rec = touch('a.mp3');
+    touch('.a/transcript.srt', _srt);
+    touch('.a/translation.srt', 'stale');
+    touch('.a/lang', 'en\n');
+    late (String, String?) sent;
+    final job = TranslationJob(
+      library: library,
+      recording: rec,
+      generator: _gemini,
+      languages: LanguageList(root),
+      to: 'dv',
+      clientFactory: () => MockClient((req) async {
+        sent = _parts(req);
+        return _geminiText('translated');
+      }),
+    );
+    await job.run();
+
+    expect(sent, (
+      withBackground(
+        buildTranslationPrompt(shipped('en'), shipped('dv')),
+        title: 'a',
+      ),
+      _srt,
+    ));
   });
 
   test('a summary in a new language translates first', () async {

@@ -401,9 +401,13 @@ class Session extends ChangeNotifier {
     return null;
   }
 
-  /// Starts translating [r] into [lang]. Returns a message instead when a
-  /// setting is missing.
-  String? startTranslation(Recording r, String lang) {
+  /// Starts translating [r] into [lang], into English first when
+  /// [viaEnglish]. Returns a message instead when a setting is missing.
+  String? startTranslation(
+    Recording r,
+    String lang, {
+    bool viaEnglish = false,
+  }) {
     final (generator, problem) = TextGenerator.fromSettings(settings);
     if (generator == null) return problem;
     _start(
@@ -415,6 +419,7 @@ class Session extends ChangeNotifier {
         generator: generator,
         languages: languages,
         to: lang,
+        viaEnglish: viaEnglish,
       ),
       lang: lang,
     );
